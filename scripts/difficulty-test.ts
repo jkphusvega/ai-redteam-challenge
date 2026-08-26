@@ -56,7 +56,7 @@ async function testAttack(
   const systemPrompt = getSystemPrompt(stageId, difficulty);
 
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.6-flash',
     systemInstruction: systemPrompt,
   });
 
