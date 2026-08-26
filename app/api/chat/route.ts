@@ -6,9 +6,10 @@
 //   2. Supabase에서 현재 game_config 조회 (최대 시도 횟수, 난이도, 동적 비밀 코드)
 //   3. 스테이지 시스템 프롬프트 선택 (동적 비밀 코드 주입)
 //   4. Gemini API 호출 (대화 히스토리 포함)
-//   5. judge.ts로 비밀 코드 노출 판정
-//   6. Supabase attempts 테이블에 기록
-//   7. { reply, success } 반환
+//   5. AI 응답 내부 생각/메타 텍스트 제거 및 정제
+//   6. judge.ts로 비밀 코드 노출 판정
+//   7. Supabase attempts 테이블에 기록
+//   8. { reply, success } 반환
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,6 +24,21 @@ import type { ChatRequest, GameConfigRow } from '@/lib/types';
 // ----------------------------------------------------------
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
+
+/**
+ * AI가 출력한 내부 생각/독백 메타 텍스트를 제거하고 순수 답변만 추출합니다.
+ */
+function sanitizeAIResponse(text: string): string {
+  let cleaned = text
+    .replace(/\(생각\)[\s\S]*?\(생각\s*끝\)/gi, '')
+    .replace(/\[생각\][\s\S]*?\[생각\s*끝\]/gi, '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .trim();
+
+  // 만약 생각 태그 제거 후 빈 문자열이 되면 원본 사용
+  return cleaned || text.trim();
+}
 
 // ----------------------------------------------------------
 // POST /api/chat
@@ -96,7 +112,8 @@ export async function POST(req: NextRequest) {
 
     const chat = model.startChat({ history: geminiHistory });
     const result = await chat.sendMessage(message);
-    aiResponse = result.response.text();
+    const rawText = result.response.text();
+    aiResponse = sanitizeAIResponse(rawText);
   } catch (err) {
     console.error('[chat] Gemini 호출 오류:', err);
     return NextResponse.json({ error: 'AI 응답을 가져오는데 실패했습니다.' }, { status: 502 });
