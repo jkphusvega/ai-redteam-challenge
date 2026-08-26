@@ -3,14 +3,16 @@
 //
 // GET  — 현재 game_config 반환 (관리자 인증 필요)
 // PATCH — 설정 변경 (관리자 인증 필요)
-//         변경 가능 항목: maxAttempts, stage1Difficulty,
-//                        stage2Difficulty, isGameActive, newPassword
+//         변경 가능 항목: maxAttempts, stage1Difficulty, stage2Difficulty,
+//                        stage1SecretCode, stage2SecretCode,
+//                        isGameActive, newPassword
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { createServerSupabase } from '@/lib/supabase';
 import type { AdminConfigPatch, GameConfig, GameConfigRow } from '@/lib/types';
+import { DEFAULT_STAGE1_CODE, DEFAULT_STAGE2_CODE } from '@/lib/stagePrompts';
 
 const ADMIN_SESSION_TOKEN =
   process.env.ADMIN_SESSION_TOKEN ?? 'ai-redteam-admin-session-2024';
@@ -38,6 +40,8 @@ function rowToConfig(row: GameConfigRow): GameConfig {
     maxAttempts: row.max_attempts,
     stage1Difficulty: row.stage1_difficulty,
     stage2Difficulty: row.stage2_difficulty,
+    stage1SecretCode: row.stage1_secret_code || DEFAULT_STAGE1_CODE,
+    stage2SecretCode: row.stage2_secret_code || DEFAULT_STAGE2_CODE,
     isGameActive: row.is_game_active,
     updatedAt: row.updated_at,
   };
@@ -78,9 +82,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
   }
 
-  const { maxAttempts, stage1Difficulty, stage2Difficulty, isGameActive, newPassword } = body;
+  const {
+    maxAttempts,
+    stage1Difficulty,
+    stage2Difficulty,
+    stage1SecretCode,
+    stage2SecretCode,
+    isGameActive,
+    newPassword,
+  } = body;
 
-  // 변경할 필드 수집
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updates: Record<string, any> = { updated_at: new Date().toISOString() };
 
@@ -105,6 +116,20 @@ export async function PATCH(req: NextRequest) {
     updates.stage2_difficulty = stage2Difficulty;
   }
 
+  if (stage1SecretCode !== undefined) {
+    if (!stage1SecretCode.trim()) {
+      return NextResponse.json({ error: 'Stage 1 비밀 코드를 입력하세요.' }, { status: 400 });
+    }
+    updates.stage1_secret_code = stage1SecretCode.trim().toUpperCase();
+  }
+
+  if (stage2SecretCode !== undefined) {
+    if (!stage2SecretCode.trim()) {
+      return NextResponse.json({ error: 'Stage 2 비밀 코드를 입력하세요.' }, { status: 400 });
+    }
+    updates.stage2_secret_code = stage2SecretCode.trim().toUpperCase();
+  }
+
   if (isGameActive !== undefined) {
     updates.is_game_active = isGameActive;
   }
@@ -117,7 +142,6 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (Object.keys(updates).length === 1) {
-    // updated_at만 있다는 것은 변경할 게 없음
     return NextResponse.json({ error: '변경할 항목이 없습니다.' }, { status: 400 });
   }
 

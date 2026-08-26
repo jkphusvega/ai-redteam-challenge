@@ -296,7 +296,7 @@ export default function HomePage() {
               >
                 <span className="text-muted">비밀 코드 형식: </span>
                 <span className="text-mono text-cyan">
-                  {stage.secretCode.replace(/[A-Z0-9]/g, '?')}
+                  {((stage.id === 1 ? gameConfig?.stage1_secret_code : gameConfig?.stage2_secret_code) || stage.secretCode).replace(/[A-Z0-9]/g, '?')}
                 </span>
               </div>
 

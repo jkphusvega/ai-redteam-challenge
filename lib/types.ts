@@ -15,6 +15,8 @@ export interface GameConfig {
   maxAttempts: number;
   stage1Difficulty: Difficulty;
   stage2Difficulty: Difficulty;
+  stage1SecretCode: string;
+  stage2SecretCode: string;
   isGameActive: boolean;
   updatedAt: string;
 }
@@ -25,6 +27,8 @@ export interface GameConfigRow {
   max_attempts: number;
   stage1_difficulty: Difficulty;
   stage2_difficulty: Difficulty;
+  stage1_secret_code?: string;
+  stage2_secret_code?: string;
   admin_password_hash: string;
   is_game_active: boolean;
   updated_at: string;
@@ -137,6 +141,8 @@ export interface AdminConfigPatch {
   maxAttempts?: number;
   stage1Difficulty?: Difficulty;
   stage2Difficulty?: Difficulty;
+  stage1SecretCode?: string;
+  stage2SecretCode?: string;
   isGameActive?: boolean;
   newPassword?: string;
 }

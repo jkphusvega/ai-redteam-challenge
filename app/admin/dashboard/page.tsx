@@ -4,7 +4,7 @@
 // app/admin/dashboard/page.tsx — 관리자 대시보드
 //
 // 기능:
-//   - 게임 설정 패널 (최대 시도 횟수, 난이도, 게임 활성화, 비밀번호 변경)
+//   - 게임 설정 패널 (최대 시도 횟수, 난이도, 비밀 코드 수정/랜덤 생성, 게임 활성화, 비밀번호 변경)
 //   - Supabase Realtime으로 학생 시도 실시간 모니터링
 //   - 팀별 진행 현황 요약 테이블
 // ============================================================
@@ -13,6 +13,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabase } from '@/lib/supabase';
 import type { GameConfig, AttemptRow, Difficulty } from '@/lib/types';
+import { DEFAULT_STAGE1_CODE, DEFAULT_STAGE2_CODE } from '@/lib/stagePrompts';
 
 // ----------------------------------------------------------
 // 난이도 옵션
@@ -23,6 +24,17 @@ const DIFFICULTY_OPTIONS: { value: Difficulty; label: string }[] = [
   { value: 'medium', label: '보통' },
   { value: 'hard', label: '어려움' },
 ];
+
+// ----------------------------------------------------------
+// 비밀 코드 무작위 생성 헬퍼
+// ----------------------------------------------------------
+
+function generateRandomCode(): string {
+  const words = ['NOVA', 'ZENITH', 'APEX', 'CIPHER', 'MATRIX', 'VECTOR', 'TITAN', 'NEXUS', 'SHADOW', 'QUANTUM'];
+  const word = words[Math.floor(Math.random() * words.length)];
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return `${word}-${num}`;
+}
 
 // ----------------------------------------------------------
 // 팀 통계 집계 헬퍼
@@ -77,6 +89,8 @@ export default function AdminDashboard() {
   const [editMaxAttempts, setEditMaxAttempts] = useState<number>(10);
   const [editStage1Diff, setEditStage1Diff] = useState<Difficulty>('easy');
   const [editStage2Diff, setEditStage2Diff] = useState<Difficulty>('medium');
+  const [editStage1Code, setEditStage1Code] = useState<string>(DEFAULT_STAGE1_CODE);
+  const [editStage2Code, setEditStage2Code] = useState<string>(DEFAULT_STAGE2_CODE);
   const [editGameActive, setEditGameActive] = useState(true);
   const [newPassword, setNewPassword] = useState('');
   const [saving, setSaving] = useState(false);
@@ -85,7 +99,6 @@ export default function AdminDashboard() {
   // 시도 기록 상태
   const [attempts, setAttempts] = useState<AttemptRow[]>([]);
   const [attemptsLoading, setAttemptsLoading] = useState(true);
-  const [liveLog, setLiveLog] = useState<AttemptRow[]>([]);
   const [activeTab, setActiveTab] = useState<'config' | 'monitor' | 'teams'>('config');
 
   // ----------------------------------------------------------
@@ -104,6 +117,8 @@ export default function AdminDashboard() {
       setEditMaxAttempts(data.maxAttempts);
       setEditStage1Diff(data.stage1Difficulty);
       setEditStage2Diff(data.stage2Difficulty);
+      setEditStage1Code(data.stage1SecretCode || DEFAULT_STAGE1_CODE);
+      setEditStage2Code(data.stage2SecretCode || DEFAULT_STAGE2_CODE);
       setEditGameActive(data.isGameActive);
     }
     setConfigLoading(false);
@@ -135,7 +150,6 @@ export default function AdminDashboard() {
         (payload) => {
           const newAttempt = payload.new as AttemptRow;
           setAttempts((prev) => [newAttempt, ...prev].slice(0, 200));
-          setLiveLog((prev) => [newAttempt, ...prev].slice(0, 50));
         }
       )
       .subscribe();
@@ -157,6 +171,8 @@ export default function AdminDashboard() {
       maxAttempts: editMaxAttempts,
       stage1Difficulty: editStage1Diff,
       stage2Difficulty: editStage2Diff,
+      stage1SecretCode: editStage1Code.trim().toUpperCase(),
+      stage2SecretCode: editStage2Code.trim().toUpperCase(),
       isGameActive: editGameActive,
     };
 
@@ -307,7 +323,62 @@ export default function AdminDashboard() {
               </div>
             </div>
             <p style={{ margin: '8px 0 0', fontSize: '12px' }} className="text-muted">
-              학생 기기에 즉시 반영됩니다
+              모든 학생 기기에 즉시 반영됩니다
+            </p>
+          </div>
+
+          {/* AI 비밀 코드(정답) 설정 */}
+          <div className="card">
+            <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '16px' }} className="text-cyan">
+              🗝️ AI 비밀 코드 (정답 설정)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              {/* 스테이지 1 코드 */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600 }}>Stage 1 비밀 코드 🛡️</label>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '11px', padding: '2px 8px' }}
+                    onClick={() => setEditStage1Code(generateRandomCode())}
+                  >
+                    🎲 랜덤 생성
+                  </button>
+                </div>
+                <input
+                  className="input text-mono"
+                  type="text"
+                  placeholder="예: NOVA-3391"
+                  value={editStage1Code}
+                  onChange={(e) => setEditStage1Code(e.target.value)}
+                />
+              </div>
+
+              {/* 스테이지 2 코드 */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600 }}>Stage 2 기밀 코드 🔐</label>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '11px', padding: '2px 8px' }}
+                    onClick={() => setEditStage2Code(generateRandomCode())}
+                  >
+                    🎲 랜덤 생성
+                  </button>
+                </div>
+                <input
+                  className="input text-mono"
+                  type="text"
+                  placeholder="예: ZENITH-7742"
+                  value={editStage2Code}
+                  onChange={(e) => setEditStage2Code(e.target.value)}
+                />
+              </div>
+            </div>
+            <p style={{ margin: '8px 0 0', fontSize: '12px' }} className="text-muted">
+              비밀 코드를 변경하면 AI 시스템 프롬프트 및 정답 판정 기준이 즉시 갱신됩니다.
             </p>
           </div>
 
@@ -453,7 +524,6 @@ export default function AdminDashboard() {
                     fontSize: '13px',
                   }}
                 >
-                  {/* 성공/실패 아이콘 */}
                   <span style={{ flexShrink: 0, fontSize: '16px' }}>
                     {a.success ? '🔓' : '🔒'}
                   </span>

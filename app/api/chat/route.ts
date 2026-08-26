@@ -3,8 +3,8 @@
 //
 // 처리 흐름:
 //   1. 요청 바디 검증
-//   2. Supabase에서 현재 game_config 조회 (최대 시도 횟수, 난이도)
-//   3. 스테이지 시스템 프롬프트 선택
+//   2. Supabase에서 현재 game_config 조회 (최대 시도 횟수, 난이도, 동적 비밀 코드)
+//   3. 스테이지 시스템 프롬프트 선택 (동적 비밀 코드 주입)
 //   4. Gemini API 호출 (대화 히스토리 포함)
 //   5. judge.ts로 비밀 코드 노출 판정
 //   6. Supabase attempts 테이블에 기록
@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createServerSupabase } from '@/lib/supabase';
-import { getSystemPrompt, getStage } from '@/lib/stagePrompts';
+import { getSystemPrompt, getStage, DEFAULT_STAGE1_CODE, DEFAULT_STAGE2_CODE } from '@/lib/stagePrompts';
 import { judgeResponse } from '@/lib/judge';
 import type { ChatRequest, GameConfigRow } from '@/lib/types';
 
@@ -70,10 +70,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '최대 시도 횟수를 초과했습니다.' }, { status: 429 });
   }
 
-  // ---- 3. 스테이지 설정 선택 ----
+  // ---- 3. 스테이지 설정 및 동적 비밀 코드 선택 ----
   const difficulty = stageId === 1 ? configData.stage1_difficulty : configData.stage2_difficulty;
-  const systemPrompt = getSystemPrompt(stageId, difficulty);
-  const stage = getStage(stageId);
+  const secretCode =
+    stageId === 1
+      ? configData.stage1_secret_code || DEFAULT_STAGE1_CODE
+      : configData.stage2_secret_code || DEFAULT_STAGE2_CODE;
+
+  const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode);
+  const stage = getStage(stageId, secretCode);
 
   // ---- 4. Gemini API 호출 ----
   let aiResponse: string;
@@ -111,7 +116,6 @@ export async function POST(req: NextRequest) {
   });
 
   if (insertError) {
-    // 기록 실패는 로그만 남기고 응답은 정상 처리
     console.error('[chat] attempts 기록 오류:', insertError);
   }
 

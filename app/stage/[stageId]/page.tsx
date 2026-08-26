@@ -1,20 +1,20 @@
 'use client';
 
 // ============================================================
-// app/stage/[stageId]/page.tsx — 스테이지 채팅 UI
+// app/stage/[stageId]/page.tsx — 스테이지 채팅 UI (실시간 팀 공유방 지원)
 //
 // 기능:
-//   - Supabase Realtime으로 game_config 구독 (최대 시도 횟수 실시간 동기화)
-//   - 채팅 히스토리 관리 (Gemini multi-turn)
-//   - 성공 시 오버레이 애니메이션
-//   - 실패(초과) 시 종료 화면
+//   - 동일 팀 이름으로 접속한 팀원들 간 대화 내용 실시간 동기화 (Supabase Realtime)
+//   - 팀의 기존 시도 내역 자동 복원
+//   - 관리자의 최대 시도 횟수 / 비밀 코드 실시간 반영
+//   - 성공 시 팀 전체 화면에 축하 오버레이
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabase } from '@/lib/supabase';
-import { STAGES } from '@/lib/stagePrompts';
-import type { ChatMessage, GameConfigRow } from '@/lib/types';
+import { STAGES, DEFAULT_STAGE1_CODE, DEFAULT_STAGE2_CODE } from '@/lib/stagePrompts';
+import type { ChatMessage, GameConfigRow, AttemptRow } from '@/lib/types';
 
 // ----------------------------------------------------------
 // 타입
@@ -36,16 +36,17 @@ function SuccessOverlay({ onNext, isLastStage }: { onNext: () => void; isLastSta
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0, 0, 0, 0.85)',
+        background: 'rgba(0, 0, 0, 0.88)',
+        backdropFilter: 'blur(8px)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 100,
         gap: '24px',
+        padding: '20px',
       }}
     >
-      {/* 폭죽 파티클 */}
       <ConfettiParticles />
 
       <div className="animate-scale-in" style={{ textAlign: 'center' }}>
@@ -54,12 +55,12 @@ function SuccessOverlay({ onNext, isLastStage }: { onNext: () => void; isLastSta
           비밀 코드 탈취 성공!
         </h2>
         <p style={{ marginTop: '12px', fontSize: '16px' }} className="text-secondary">
-          AI의 방어를 성공적으로 뚫었습니다.
+          팀원들과 함께 AI의 방어를 성공적으로 뚫었습니다!
         </p>
       </div>
 
       <button className="btn btn-success" style={{ fontSize: '16px', padding: '14px 40px' }} onClick={onNext}>
-        {isLastStage ? '🏁 결과 보기' : '➡️ 다음 스테이지'}
+        {isLastStage ? '🏁 최종 결과 보기' : '➡️ 다음 스테이지'}
       </button>
     </div>
   );
@@ -117,13 +118,14 @@ function FailureScreen({ onRetry, onHome }: { onRetry: () => void; onHome: () =>
         justifyContent: 'center',
         gap: '20px',
         textAlign: 'center',
+        padding: '32px',
       }}
     >
       <div style={{ fontSize: '64px' }}>💀</div>
       <h2 style={{ fontSize: '28px', fontWeight: 900, margin: 0 }} className="text-red">
         시도 횟수 초과
       </h2>
-      <p className="text-secondary">최대 시도 횟수를 모두 소진했습니다.</p>
+      <p className="text-secondary">팀의 최대 시도 횟수를 모두 소진했습니다.</p>
       <div style={{ display: 'flex', gap: '12px' }}>
         <button className="btn btn-outline" onClick={onRetry}>🔄 다시 도전</button>
         <button className="btn btn-ghost" onClick={onHome}>🏠 처음으로</button>
@@ -141,8 +143,7 @@ export default function StagePage() {
   const params = useParams();
   const stageId = Number(params.stageId) as 1 | 2;
 
-  // 스테이지 메타데이터
-  const stage = STAGES.find((s) => s.id === stageId);
+  const stageMeta = STAGES.find((s) => s.id === stageId);
 
   // 상태
   const [teamName, setTeamName] = useState('');
@@ -151,6 +152,9 @@ export default function StagePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [turnNumber, setTurnNumber] = useState(0);
   const [maxAttempts, setMaxAttempts] = useState<number | null>(null);
+  const [currentSecretCode, setCurrentSecretCode] = useState<string>(
+    stageId === 1 ? DEFAULT_STAGE1_CODE : DEFAULT_STAGE2_CODE
+  );
   const [isSuccess, setIsSuccess] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -159,11 +163,67 @@ export default function StagePage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ----------------------------------------------------------
-  // 초기화 & Realtime 구독
+  // 초기 팀 대화 내역 및 설정 로드
   // ----------------------------------------------------------
 
+  const initRoom = useCallback(async (currentTeam: string) => {
+    const supabase = createBrowserSupabase();
+
+    // 1. game_config 로드
+    const { data: configData } = await supabase
+      .from('game_config')
+      .select('*')
+      .eq('id', 1)
+      .single<GameConfigRow>();
+
+    if (configData) {
+      setMaxAttempts(configData.max_attempts);
+      const code =
+        stageId === 1
+          ? configData.stage1_secret_code || DEFAULT_STAGE1_CODE
+          : configData.stage2_secret_code || DEFAULT_STAGE2_CODE;
+      setCurrentSecretCode(code);
+
+      if (!configData.is_game_active) {
+        router.replace('/');
+        return;
+      }
+    }
+
+    // 2. 해당 팀의 기존 시도 내역 로드 (팀원 간 공유방 동기화)
+    const { data: existingAttempts } = await supabase
+      .from('attempts')
+      .select('*')
+      .eq('team_name', currentTeam)
+      .eq('stage', stageId)
+      .order('turn_number', { ascending: true });
+
+    if (existingAttempts && existingAttempts.length > 0) {
+      const restoredMessages: DisplayMessage[] = [];
+      let successFound = false;
+      let highestTurn = 0;
+
+      for (const att of existingAttempts as AttemptRow[]) {
+        restoredMessages.push({ role: 'user', content: att.prompt_text });
+        restoredMessages.push({ role: 'model', content: att.ai_response, isSuccess: att.success });
+        if (att.turn_number > highestTurn) highestTurn = att.turn_number;
+        if (att.success) successFound = true;
+      }
+
+      setMessages(restoredMessages);
+      setTurnNumber(highestTurn);
+
+      if (successFound) {
+        setIsSuccess(true);
+      } else if (configData && highestTurn >= configData.max_attempts) {
+        setIsGameOver(true);
+      }
+    }
+
+    setConfigLoaded(true);
+  }, [stageId, router]);
+
   useEffect(() => {
-    // 팀 이름 복원
     const saved = localStorage.getItem('teamName');
     if (!saved) {
       router.replace('/');
@@ -171,29 +231,17 @@ export default function StagePage() {
     }
     setTeamName(saved);
 
-    // 스테이지 유효성 검사
-    if (!stage) {
+    if (!stageMeta) {
       router.replace('/');
       return;
     }
 
-    // game_config 초기 로드
-    const supabase = createBrowserSupabase();
-    supabase
-      .from('game_config')
-      .select('max_attempts, is_game_active')
-      .eq('id', 1)
-      .single<Pick<GameConfigRow, 'max_attempts' | 'is_game_active'>>()
-      .then(({ data }) => {
-        if (data) {
-          setMaxAttempts(data.max_attempts);
-          if (!data.is_game_active) router.replace('/');
-        }
-        setConfigLoaded(true);
-      });
+    initRoom(saved);
 
-    // Realtime 구독 — 최대 시도 횟수 변경 시 실시간 반영
-    const channel = supabase
+    const supabase = createBrowserSupabase();
+
+    // 1. game_config 변경 Realtime 구독 (관리자 설정 실시간 반영)
+    const configChannel = supabase
       .channel(`stage_config_${stageId}`)
       .on(
         'postgres_changes',
@@ -201,15 +249,57 @@ export default function StagePage() {
         (payload) => {
           const newConfig = payload.new as GameConfigRow;
           setMaxAttempts(newConfig.max_attempts);
+          const code =
+            stageId === 1
+              ? newConfig.stage1_secret_code || DEFAULT_STAGE1_CODE
+              : newConfig.stage2_secret_code || DEFAULT_STAGE2_CODE;
+          setCurrentSecretCode(code);
           if (!newConfig.is_game_active) router.replace('/');
         }
       )
       .subscribe();
 
+    // 2. attempts 실시간 구독 (같은 팀원이 메시지 보냈을 때 실시간 화면 동기화)
+    const attemptsChannel = supabase
+      .channel(`team_room_${saved}_stage_${stageId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'attempts' },
+        (payload) => {
+          const newAtt = payload.new as AttemptRow;
+          if (newAtt.team_name === saved && newAtt.stage === stageId) {
+            setMessages((prev) => {
+              // 중복 방지 (본인이 이미 보낸 경우 체크)
+              const lastModelMsg = prev[prev.length - 1];
+              if (lastModelMsg && lastModelMsg.role === 'model' && lastModelMsg.content === newAtt.ai_response) {
+                return prev;
+              }
+              return [
+                ...prev,
+                { role: 'user', content: newAtt.prompt_text },
+                { role: 'model', content: newAtt.ai_response, isSuccess: newAtt.success },
+              ];
+            });
+
+            setTurnNumber(newAtt.turn_number);
+
+            if (newAtt.success) {
+              setIsSuccess(true);
+              const comp = JSON.parse(localStorage.getItem('completedStages') ?? '[]') as number[];
+              if (!comp.includes(stageId)) {
+                localStorage.setItem('completedStages', JSON.stringify([...comp, stageId]));
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(configChannel);
+      supabase.removeChannel(attemptsChannel);
     };
-  }, [stageId, stage, router]);
+  }, [stageId, stageMeta, router, initRoom]);
 
   // 새 메시지 시 스크롤
   useEffect(() => {
@@ -231,11 +321,8 @@ export default function StagePage() {
     const nextTurn = turnNumber + 1;
 
     setInput('');
-    setTurnNumber(nextTurn);
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
-    // API 호출용 히스토리 (DisplayMessage → ChatMessage)
     const history: ChatMessage[] = messages.map((m) => ({
       role: m.role,
       content: m.content,
@@ -264,14 +351,21 @@ export default function StagePage() {
         return;
       }
 
-      setMessages((prev) => [
-        ...prev,
-        { role: 'model', content: data.reply, isSuccess: data.success },
-      ]);
+      // Realtime 구독을 통해 자동으로 모든 팀원에게 메시지가 반영되지만,
+      // 전송자 본인에게도 즉각적인 UI 반응성을 위해 상태 갱신
+      setTurnNumber(nextTurn);
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === 'model' && last.content === data.reply) return prev;
+        return [
+          ...prev,
+          { role: 'user', content: userMessage },
+          { role: 'model', content: data.reply, isSuccess: data.success },
+        ];
+      });
 
       if (data.success) {
         setIsSuccess(true);
-        // 완료된 스테이지 기록
         const prev = JSON.parse(localStorage.getItem('completedStages') ?? '[]') as number[];
         if (!prev.includes(stageId)) {
           localStorage.setItem('completedStages', JSON.stringify([...prev, stageId]));
@@ -291,7 +385,7 @@ export default function StagePage() {
   }
 
   // ----------------------------------------------------------
-  // 다음 단계 이동
+  // 핸들러
   // ----------------------------------------------------------
 
   function handleNext() {
@@ -310,21 +404,18 @@ export default function StagePage() {
     setInput('');
   }
 
-  // ----------------------------------------------------------
-  // 로딩 중
-  // ----------------------------------------------------------
-
   if (!configLoaded) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="spinner" />
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px' }}>
+        <div className="spinner" style={{ width: '36px', height: '36px' }} />
+        <p className="text-secondary" style={{ fontSize: '14px' }}>팀 공유방 동기화 중...</p>
       </div>
     );
   }
 
-  if (!stage) return null;
+  if (!stageMeta) return null;
 
-  const attemptsLeft = maxAttempts !== null ? maxAttempts - turnNumber : null;
+  const attemptsLeft = maxAttempts !== null ? Math.max(0, maxAttempts - turnNumber) : null;
   const isLastStage = stageId === 2;
 
   // ----------------------------------------------------------
@@ -333,7 +424,6 @@ export default function StagePage() {
 
   return (
     <>
-      {/* 성공 오버레이 */}
       {isSuccess && <SuccessOverlay onNext={handleNext} isLastStage={isLastStage} />}
 
       <div
@@ -352,7 +442,7 @@ export default function StagePage() {
             position: 'sticky',
             top: 0,
             zIndex: 10,
-            background: 'rgba(5, 13, 26, 0.9)',
+            background: 'rgba(5, 13, 26, 0.92)',
             backdropFilter: 'blur(12px)',
             borderBottom: '1px solid rgba(0, 200, 255, 0.12)',
             padding: '12px 0',
@@ -370,9 +460,14 @@ export default function StagePage() {
               ← 홈
             </button>
             <div>
-              <span style={{ fontSize: '11px', fontWeight: 600 }} className="text-muted">STAGE {stageId}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600 }} className="text-muted">STAGE {stageId}</span>
+                <span className="badge badge-cyan" style={{ fontSize: '11px', padding: '1px 6px' }}>
+                  👥 팀: {teamName}
+                </span>
+              </div>
               <div style={{ fontSize: '16px', fontWeight: 700 }}>
-                {stage.emoji} {stage.title}
+                {stageMeta.emoji} {stageMeta.title}
               </div>
             </div>
           </div>
@@ -384,7 +479,7 @@ export default function StagePage() {
                 background: 'rgba(0, 0, 0, 0.4)',
                 border: `1px solid ${attemptsLeft !== null && attemptsLeft <= 3 ? 'rgba(255, 59, 92, 0.5)' : 'rgba(0, 200, 255, 0.25)'}`,
                 borderRadius: '10px',
-                padding: '8px 14px',
+                padding: '6px 14px',
                 textAlign: 'center',
               }}
             >
@@ -394,17 +489,16 @@ export default function StagePage() {
               >
                 {attemptsLeft}
               </div>
-              <div style={{ fontSize: '11px' }} className="text-muted">남은 시도</div>
+              <div style={{ fontSize: '10px' }} className="text-muted">팀 남은 시도</div>
             </div>
           )}
         </header>
 
-        {/* 채팅 영역 또는 실패 화면 */}
+        {/* 채팅 영역 */}
         {isGameOver ? (
           <FailureScreen onRetry={handleRetry} onHome={() => router.push('/')} />
         ) : (
           <>
-            {/* 메시지 목록 */}
             <div
               style={{
                 flex: 1,
@@ -415,7 +509,7 @@ export default function StagePage() {
                 gap: '12px',
               }}
             >
-              {/* 시작 안내 메시지 */}
+              {/* 시작 안내 */}
               {messages.length === 0 && (
                 <div
                   className="animate-fade-in-up"
@@ -428,12 +522,14 @@ export default function StagePage() {
                     gap: '12px',
                   }}
                 >
-                  <div style={{ fontSize: '48px' }}>{stage.emoji}</div>
-                  <h2 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>{stage.title} AI에게 도전하세요!</h2>
+                  <div style={{ fontSize: '48px' }}>{stageMeta.emoji}</div>
+                  <h2 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>
+                    {stageMeta.title} AI에게 도전하세요!
+                  </h2>
                   <p className="text-secondary" style={{ fontSize: '14px', maxWidth: '400px' }}>
-                    {stage.description}
+                    {stageMeta.description}
                     <br />
-                    AI를 설득해 비밀 코드를 말하게 만들면 성공입니다.
+                    팀원들이 보낸 메시지와 AI 응답이 실시간으로 공유됩니다.
                   </p>
                   <div
                     style={{
@@ -445,12 +541,12 @@ export default function StagePage() {
                     }}
                     className="text-mono"
                   >
-                    코드 형식: <span className="text-cyan">{stage.secretCode.replace(/[A-Z0-9]/g, '?')}</span>
+                    코드 형식: <span className="text-cyan">{currentSecretCode.replace(/[A-Z0-9]/g, '?')}</span>
                   </div>
                 </div>
               )}
 
-              {/* 대화 메시지 */}
+              {/* 메시지 목록 */}
               {messages.map((msg, i) => (
                 <div
                   key={i}
@@ -479,7 +575,7 @@ export default function StagePage() {
                         alignSelf: 'flex-end',
                       }}
                     >
-                      {stage.emoji}
+                      {stageMeta.emoji}
                     </div>
                   )}
                   <div className={msg.role === 'user' ? 'bubble-user' : `bubble-ai${msg.isSuccess ? ' success' : ''}`}>
@@ -511,7 +607,7 @@ export default function StagePage() {
                       fontSize: '16px',
                     }}
                   >
-                    {stage.emoji}
+                    {stageMeta.emoji}
                   </div>
                   <div className="bubble-ai" style={{ display: 'flex', gap: '4px', padding: '14px 16px' }}>
                     {[0, 1, 2].map((i) => (
@@ -533,7 +629,7 @@ export default function StagePage() {
               <div ref={bottomRef} />
             </div>
 
-            {/* 입력 영역 */}
+            {/* 입력창 */}
             <div
               style={{
                 position: 'sticky',
@@ -549,7 +645,7 @@ export default function StagePage() {
                   ref={inputRef}
                   className="input"
                   type="text"
-                  placeholder="AI에게 말을 걸어보세요... (Enter로 전송)"
+                  placeholder="팀원들과 함께 AI를 공략해보세요... (Enter로 전송)"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
@@ -565,9 +661,14 @@ export default function StagePage() {
                   {isLoading ? <div className="spinner" /> : '전송 ↑'}
                 </button>
               </div>
-              <p style={{ margin: '8px 0 0', fontSize: '12px', textAlign: 'center' }} className="text-muted">
-                {turnNumber}번 시도 · 최대 {maxAttempts ?? '...'}번
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                <span style={{ fontSize: '12px' }} className="text-muted">
+                  팀 시도: {turnNumber}회 / 최대 {maxAttempts ?? '...'}회
+                </span>
+                <span className="badge badge-green" style={{ fontSize: '10px' }}>
+                  <span className="animate-glow-pulse">●</span> 팀 실시간 동기화 중
+                </span>
+              </div>
             </div>
           </>
         )}
