@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { createBrowserSupabase } from '@/lib/supabase';
+import { createBrowserSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { STAGES, DEFAULT_STAGE1_CODE, DEFAULT_STAGE2_CODE } from '@/lib/stagePrompts';
 import type { ChatMessage, GameConfigRow, AttemptRow } from '@/lib/types';
 
@@ -183,6 +183,13 @@ export default function StagePage() {
   // ----------------------------------------------------------
 
   const initRoom = useCallback(async (currentTeam: string) => {
+    if (!isSupabaseConfigured()) {
+      setMaxAttempts(20);
+      setCurrentSecretCode(stageId === 1 ? DEFAULT_STAGE1_CODE : DEFAULT_STAGE2_CODE);
+      setConfigLoaded(true);
+      return;
+    }
+
     const supabase = createBrowserSupabase();
 
     // 1. game_config 로드
@@ -268,6 +275,8 @@ export default function StagePage() {
     setMyUserId(uid);
 
     initRoom(saved);
+
+    if (!isSupabaseConfigured()) return;
 
     const supabase = createBrowserSupabase();
 

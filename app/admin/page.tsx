@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -120,9 +121,9 @@ export default function AdminLoginPage() {
         </form>
 
         <div style={{ marginTop: '20px', textAlign: 'center' }}>
-          <a href="/" style={{ fontSize: '13px', color: 'var(--text-muted)', textDecoration: 'none' }}>
+          <Link href="/" style={{ fontSize: '13px', color: 'var(--text-muted)', textDecoration: 'none' }}>
             ← 학생 화면으로 돌아가기
-          </a>
+          </Link>
         </div>
       </div>
     </main>
