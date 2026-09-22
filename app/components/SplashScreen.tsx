@@ -1,10 +1,10 @@
 'use client';
 
 // ============================================================
-// SplashScreen.tsx — 해킹 프로그램 복호화 스플래시 화면 (GSAP Enhanced)
+// SplashScreen.tsx — SHADOW BREACH 시스템 침투 스플래시 화면
 //
-// 첫 방문 시 1회만 표시되는 보안 시스템 복호화 인트로
-// GSAP Timeline 기반의 정밀 드로잉, 디코딩 이징, CRT 플리커 적용
+// 사이버 하이테크 엠블럼, Orbitron 폰트, 정밀 디코딩 애니메이션,
+// 100% 도달 시 메인 미션 화면으로 무지연 자동 전환
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
@@ -12,17 +12,17 @@ import gsap from 'gsap';
 
 const SCRAMBLE_POOL = '!@#$%^&*_+-=[]{}|;:<>?/~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
-const LINE_A = '#02 Mission : 비밀번호 탈취하기';
-const LINE_B = 'AI 보안 통제실 수문장 돌파 작전';
+const LINE_A = 'SHADOW BREACH';
+const LINE_B = 'AI 통제실 시스템 침투 프로토콜 활성화';
 
 const STATUS_MESSAGES = [
-  '[SYS] 암호화 레이어 감지... AES-256-GCM',
-  '[NET] 보안 채널 연결 중... 0x7F.PROXY',
-  '[KEY] 키스트림 역추출 진행 중...',
-  '[DEC] 메모리 버퍼 복호화 시작...',
-  '[AUTH] GATEKEEPER-v3 인증 우회 준비...',
-  '[SYS] 방화벽 바이패스 모듈 로드 완료',
-  '[OK!] 사건 파일 복호화 성공 — 접근 허가',
+  '[SYS] SHADOW_BREACH 커널 로드... v4.2',
+  '[NET] 익명화 프록시 체인 터널 개방... 0x7F.PROXY',
+  '[SCAN] AI 통제실 통신 포트 스캔 및 취약점 감지',
+  '[DEC] 게이트키퍼 보호 레이어 복호화 시작...',
+  '[INJECT] 침투 페이로드 인젝션 모듈 장착',
+  '[AUTH] 보안 방화벽 우회 세션 확립',
+  '[OK] 침투 성공 — 보안 통제실 자동 진입',
 ];
 
 interface SplashScreenProps {
@@ -49,8 +49,34 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
   const [visibleLogs, setVisibleLogs] = useState<string[]>([]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const emblemRef = useRef<HTMLDivElement>(null);
+  const ringRef = useRef<SVGSVGElement>(null);
   const cornerPathsRef = useRef<(SVGPathElement | null)[]>([]);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const autoEnterTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isEnteringRef = useRef(false);
+
+  function handleEnter() {
+    if (isEnteringRef.current) return;
+    isEnteringRef.current = true;
+    if (autoEnterTimerRef.current) {
+      clearTimeout(autoEnterTimerRef.current);
+      autoEnterTimerRef.current = null;
+    }
+    sessionStorage.setItem('splash_shown', 'true');
+    // 퇴장 페이드아웃 효과
+    if (containerRef.current) {
+      gsap.to(containerRef.current, {
+        opacity: 0,
+        scale: 1.04,
+        filter: 'brightness(1.5) blur(4px)',
+        duration: 0.4,
+        ease: 'power2.in',
+        onComplete,
+      });
+    } else {
+      onComplete();
+    }
+  }
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -67,15 +93,37 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         });
       });
 
-      // 2. 메인 복호화 프로그레스 & 텍스트 디코딩 GSAP 트윈
+      // 2. 엠블럼 회전 링 애니메이션
+      if (ringRef.current) {
+        gsap.to(ringRef.current, {
+          rotation: 360,
+          duration: 8,
+          ease: 'none',
+          repeat: -1,
+        });
+      }
+
+      // 3. 엠블럼 네온 펄스
+      if (emblemRef.current) {
+        gsap.to(emblemRef.current, {
+          boxShadow: '0 0 35px rgba(0, 240, 255, 0.6), inset 0 0 20px rgba(0, 240, 255, 0.35)',
+          scale: 1.02,
+          duration: 1.4,
+          repeat: -1,
+          yoyo: true,
+          ease: 'sine.inOut',
+        });
+      }
+
+      // 4. 메인 복호화 프로그레스 & 텍스트 디코딩 GSAP 트윈
       const progressObj = { value: 0 };
       let lastLogIdx = -1;
 
       gsap.to(progressObj, {
         value: 100,
-        duration: 3.2,
+        duration: 2.8,
         ease: 'power2.inOut',
-        delay: 0.2,
+        delay: 0.1,
         onUpdate: () => {
           const val = Math.floor(progressObj.value);
           setProgress(val);
@@ -91,13 +139,13 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
             setVisibleLogs((prev) => [...prev.slice(-6), STATUS_MESSAGES[logIdx]]);
           }
 
-          // 라인 A 디코딩 (10% ~ 70%)
-          const aRatio = Math.max(0, Math.min(1, (pct - 0.1) / 0.6));
+          // 라인 A 디코딩 (10% ~ 68%)
+          const aRatio = Math.max(0, Math.min(1, (pct - 0.1) / 0.58));
           const aRevealed = Math.floor(aRatio * LINE_A.length);
           setCharsA(buildScrambled(LINE_A, aRevealed));
 
-          // 라인 B 디코딩 (30% ~ 88%)
-          const bRatio = Math.max(0, Math.min(1, (pct - 0.3) / 0.58));
+          // 라인 B 디코딩 (25% ~ 85%)
+          const bRatio = Math.max(0, Math.min(1, (pct - 0.25) / 0.6));
           const bRevealed = Math.floor(bRatio * LINE_B.length);
           setCharsB(buildScrambled(LINE_B, bRevealed));
         },
@@ -106,79 +154,47 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           setCharsB(LINE_B.split(''));
           setDone(true);
 
-          // 3. 복호화 완료 시 CRT 화면 글리치 쉐이크 연출
+          // 완료 시 CRT 화면 글리치 쉐이크 연출
           if (containerRef.current) {
             gsap.fromTo(
               containerRef.current,
-              { filter: 'brightness(1.8) contrast(1.2)' },
+              { filter: 'brightness(1.9) contrast(1.2)' },
               {
                 filter: 'brightness(1) contrast(1)',
-                duration: 0.25,
+                duration: 0.2,
                 ease: 'power1.out',
               }
             );
             gsap.fromTo(
               containerRef.current,
-              { x: -3, y: 2 },
+              { x: -4, y: 2 },
               {
                 x: 0,
                 y: 0,
-                duration: 0.3,
+                duration: 0.25,
                 ease: 'elastic.out(1, 0.3)',
               }
             );
           }
+
+          // 100% 로딩 완료 후 버튼 클릭 없이 0.45초 뒤 자동 메인 화면 진입
+          autoEnterTimerRef.current = setTimeout(() => {
+            handleEnter();
+          }, 450);
         },
       });
     }, containerRef);
 
-    return () => ctx.revert();
+    return () => {
+      ctx.revert();
+      if (autoEnterTimerRef.current) {
+        clearTimeout(autoEnterTimerRef.current);
+      }
+    };
   }, []);
 
-  // 완료 후 버튼 등장 GSAP 애니메이션
-  useEffect(() => {
-    if (done && buttonRef.current) {
-      gsap.fromTo(
-        buttonRef.current,
-        { scale: 0.85, opacity: 0, y: 10 },
-        {
-          scale: 1,
-          opacity: 1,
-          y: 0,
-          duration: 0.5,
-          ease: 'back.out(1.7)',
-        }
-      );
-
-      // 네온 브리딩 펄스
-      gsap.to(buttonRef.current, {
-        boxShadow: '0 0 25px rgba(0, 240, 255, 0.55), inset 0 0 10px rgba(0, 240, 255, 0.2)',
-        repeat: -1,
-        yoyo: true,
-        duration: 1.2,
-        ease: 'sine.inOut',
-      });
-    }
-  }, [done]);
-
-  function handleEnter() {
-    sessionStorage.setItem('splash_shown', 'true');
-    // 퇴장 페이드아웃 효과
-    if (containerRef.current) {
-      gsap.to(containerRef.current, {
-        opacity: 0,
-        scale: 1.03,
-        duration: 0.4,
-        ease: 'power2.in',
-        onComplete,
-      });
-    } else {
-      onComplete();
-    }
-  }
-
   const accent = '#00f0ff';
-  const accentDim = 'rgba(0, 240, 255, 0.35)';
+  const accentDim = 'rgba(0, 240, 255, 0.4)';
 
   return (
     <div
@@ -187,9 +203,9 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         position: 'fixed',
         inset: 0,
         zIndex: 9999,
-        background: '#070a13',
+        background: '#05070d',
         backgroundImage:
-          'repeating-linear-gradient(to bottom, rgba(0, 240, 255, 0.02) 0px, rgba(0, 240, 255, 0.02) 1px, transparent 1px, transparent 3px)',
+          'radial-gradient(ellipse at 50% 40%, rgba(0, 240, 255, 0.08) 0%, transparent 70%), repeating-linear-gradient(to bottom, rgba(0, 240, 255, 0.015) 0px, rgba(0, 240, 255, 0.015) 1px, transparent 1px, transparent 3px)',
         color: '#e8f4ff',
         display: 'flex',
         alignItems: 'center',
@@ -197,7 +213,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         overflow: 'hidden',
       }}
     >
-      {/* 네 모서리 코너 브래킷 (GSAP 드로잉 타겟) */}
+      {/* 네 모서리 코너 브래킷 */}
       <svg
         width="36"
         height="36"
@@ -259,28 +275,60 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       <div
         style={{
           position: 'absolute',
-          top: 36,
+          top: 32,
           left: 56,
           fontFamily: 'var(--font-mono)',
           fontSize: '12px',
           color: accentDim,
-          letterSpacing: '1px',
+          letterSpacing: '1.5px',
         }}
       >
-        ● SEC_DECRYPT_SEQUENCE_ACTIVE
+        ● BREACH_PROTOCOL_ACTIVE // 0x7F
       </div>
       <div
         style={{
           position: 'absolute',
-          top: 36,
+          top: 28,
           right: 56,
-          fontFamily: 'var(--font-mono)',
-          fontSize: '12px',
-          color: accentDim,
-          letterSpacing: '1px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
         }}
       >
-        CASE_FILE: GK-0918
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            color: accentDim,
+            letterSpacing: '1px',
+          }}
+        >
+          TARGET: AI_CONTROL_ROOM
+        </span>
+        <button
+          onClick={handleEnter}
+          style={{
+            background: 'rgba(0, 240, 255, 0.08)',
+            border: '1px solid rgba(0, 240, 255, 0.3)',
+            color: 'var(--cyan)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '11px',
+            padding: '4px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(0, 240, 255, 0.2)';
+            e.currentTarget.style.borderColor = 'var(--cyan)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(0, 240, 255, 0.08)';
+            e.currentTarget.style.borderColor = 'rgba(0, 240, 255, 0.3)';
+          }}
+        >
+          건너뛰기 SKIP ⏩
+        </button>
       </div>
 
       {/* 중앙 메인 컨테이너 */}
@@ -289,7 +337,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '20px',
+          gap: '16px',
           maxWidth: '920px',
           padding: '0 40px',
           width: '100%',
@@ -299,28 +347,101 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         <div
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: '12px',
+            fontSize: '11px',
             color: accent,
             letterSpacing: '3px',
             textTransform: 'uppercase',
-            padding: '4px 12px',
+            padding: '4px 14px',
             borderRadius: '4px',
             background: 'rgba(0, 240, 255, 0.08)',
-            border: '1px solid rgba(0, 240, 255, 0.25)',
+            border: '1px solid rgba(0, 240, 255, 0.3)',
           }}
         >
           AI REDTEAM // BREACH PROTOCOL
         </div>
 
-        {/* 메인 타이틀 (디코딩) */}
+        {/* 중앙 사이버 해킹 마크 / 엠블럼 */}
         <div
           style={{
-            fontSize: 'clamp(28px, 5vw, 44px)',
-            lineHeight: 1.3,
+            position: 'relative',
+            width: '130px',
+            height: '130px',
+            margin: '4px 0 6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {/* 회전하는 사이버 HUD 링 */}
+          <svg
+            ref={ringRef}
+            width="154"
+            height="154"
+            viewBox="0 0 154 154"
+            style={{
+              position: 'absolute',
+              pointerEvents: 'none',
+            }}
+          >
+            <circle
+              cx="77"
+              cy="77"
+              r="72"
+              fill="none"
+              stroke="rgba(0, 240, 255, 0.35)"
+              strokeWidth="1.5"
+              strokeDasharray="14 8 26 8"
+            />
+            <circle
+              cx="77"
+              cy="77"
+              r="66"
+              fill="none"
+              stroke="rgba(0, 240, 255, 0.2)"
+              strokeWidth="1"
+              strokeDasharray="4 6"
+            />
+          </svg>
+
+          {/* 중앙 로고 이미지 */}
+          <div
+            ref={emblemRef}
+            style={{
+              width: '118px',
+              height: '118px',
+              borderRadius: '20px',
+              overflow: 'hidden',
+              border: '2px solid rgba(0, 240, 255, 0.7)',
+              boxShadow: '0 0 25px rgba(0, 240, 255, 0.45), inset 0 0 15px rgba(0, 240, 255, 0.2)',
+              background: '#000',
+              position: 'relative',
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/shadow-breach-emblem.jpg"
+              alt="Shadow Breach Emblem"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                filter: 'contrast(1.1) brightness(1.05)',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* 메인 타이틀 (Orbitron 폰트 & 디코딩) */}
+        <div
+          style={{
+            fontFamily: "var(--font-orbitron), 'Space Grotesk', sans-serif",
+            fontSize: 'clamp(32px, 5.5vw, 52px)',
+            lineHeight: 1.1,
             textAlign: 'center',
-            minHeight: '1.4em',
             fontWeight: 900,
-            letterSpacing: '-0.02em',
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            minHeight: '1.2em',
           }}
         >
           {charsA.map((ch, i) => {
@@ -329,12 +450,12 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
               <span
                 key={i}
                 style={{
-                  color: isRevealed ? '#e8f4ff' : accent,
-                  fontFamily: 'inherit',
+                  color: isRevealed ? '#ffffff' : accent,
                   textShadow: isRevealed
-                    ? '0 0 20px rgba(0, 240, 255, 0.3)'
-                    : `0 0 10px ${accent}`,
+                    ? '0 0 25px rgba(0, 240, 255, 0.8), 0 0 50px rgba(0, 240, 255, 0.35)'
+                    : `0 0 15px ${accent}`,
                   transition: 'color 0.15s ease',
+                  display: 'inline-block',
                 }}
               >
                 {ch}
@@ -343,13 +464,15 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           })}
         </div>
 
-        {/* 서브 타이틀 (디코딩) */}
+        {/* 서브 타이틀 (Chakra Petch & 디코딩) */}
         <div
           style={{
-            fontSize: '16px',
-            letterSpacing: '0.04em',
+            fontFamily: "var(--font-chakra), 'Noto Sans KR', sans-serif",
+            fontSize: '15px',
+            letterSpacing: '0.06em',
             minHeight: '1.4em',
             color: 'rgba(232, 244, 255, 0.75)',
+            fontWeight: 500,
           }}
         >
           {charsB.map((ch, i) => {
@@ -359,7 +482,6 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
                 key={i}
                 style={{
                   color: isRevealed ? 'rgba(232, 244, 255, 0.85)' : accentDim,
-                  fontFamily: 'inherit',
                   textShadow: isRevealed ? 'none' : `0 0 6px ${accentDim}`,
                 }}
               >
@@ -375,15 +497,15 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
             display: 'flex',
             alignItems: 'center',
             gap: '14px',
-            width: '440px',
+            width: '420px',
             maxWidth: '100%',
-            marginTop: '8px',
+            marginTop: '4px',
           }}
         >
           <div
             style={{
               flexGrow: 1,
-              height: '3px',
+              height: '4px',
               background: 'rgba(0, 240, 255, 0.12)',
               borderRadius: '2px',
               overflow: 'hidden',
@@ -402,12 +524,12 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           </div>
           <span
             style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '13px',
+              fontFamily: "var(--font-orbitron), 'JetBrains Mono', monospace",
+              fontSize: '14px',
               color: accent,
-              minWidth: '42px',
+              minWidth: '48px',
               textAlign: 'right',
-              fontWeight: 700,
+              fontWeight: 800,
             }}
           >
             {progress}%
@@ -417,17 +539,18 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         {/* 상태 터미널 로그 */}
         <div
           style={{
-            width: '500px',
+            width: '480px',
             maxWidth: '100%',
-            minHeight: '120px',
+            minHeight: '110px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-end',
             gap: '4px',
-            background: 'rgba(7, 10, 19, 0.6)',
-            padding: '12px 16px',
+            background: 'rgba(5, 7, 13, 0.75)',
+            padding: '10px 16px',
             borderRadius: '6px',
-            border: '1px solid rgba(0, 240, 255, 0.12)',
+            border: '1px solid rgba(0, 240, 255, 0.15)',
+            boxShadow: 'inset 0 0 15px rgba(0, 0, 0, 0.5)',
           }}
         >
           {visibleLogs.map((line, i) => (
@@ -440,7 +563,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
                   ? '#00ff66'
                   : line.startsWith('[AUTH')
                   ? '#ff3366'
-                  : 'rgba(0, 240, 255, 0.65)',
+                  : 'rgba(0, 240, 255, 0.7)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -451,44 +574,37 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           ))}
         </div>
 
-        {/* 완료 시 나타나는 작전 개시/열람 버튼 */}
-        <div style={{ minHeight: '48px', display: 'flex', alignItems: 'center' }}>
-          {done && (
-            <button
-              ref={buttonRef}
-              onClick={handleEnter}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '10px',
-                border: `1px solid ${accent}`,
-                color: '#070a13',
-                background: accent,
-                fontFamily: 'var(--font-sans)',
-                fontWeight: 800,
-                fontSize: '14px',
-                padding: '12px 28px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                letterSpacing: '0.04em',
-                boxShadow: '0 0 20px rgba(0, 240, 255, 0.4)',
-                transition: 'transform 0.15s ease, filter 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.filter = 'brightness(1.15)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.filter = 'brightness(1)';
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 14 14" fill="none">
-                <rect x="3" y="6" width="8" height="6" stroke="#070a13" strokeWidth="1.5" />
-                <path d="M5 6 V4 a2 2 0 0 1 4 0 V6" stroke="#070a13" strokeWidth="1.5" />
-              </svg>
-              사건 파일 열람 (통제실 입장)
-            </button>
+        {/* 100% 도달 시 자동 진입 인디케이터 (버튼 제거됨) */}
+        <div
+          style={{
+            height: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '11px',
+            color: done ? '#00ff66' : 'rgba(0, 240, 255, 0.45)',
+            letterSpacing: '1px',
+            transition: 'color 0.2s ease',
+          }}
+        >
+          {done ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: '7px',
+                  height: '7px',
+                  borderRadius: '50%',
+                  background: '#00ff66',
+                  boxShadow: '0 0 8px #00ff66',
+                  animation: 'pulse 0.8s infinite alternate',
+                }}
+              />
+              침투 완료 // 메인 통제실로 자동 전환 중...
+            </span>
+          ) : (
+            <span>시스템 무결성 점검 및 패킷 복호화 진행 중...</span>
           )}
         </div>
       </div>
@@ -497,7 +613,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       <div
         style={{
           position: 'absolute',
-          bottom: 32,
+          bottom: 24,
           left: 0,
           right: 0,
           display: 'flex',
@@ -510,9 +626,9 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           padding: '0 20px',
         }}
       >
-        <span>PROTOCOL // REDTEAM_HUD_v4.2</span>
+        <span>PROTOCOL // SHADOW_BREACH_v4.2</span>
         <span>ENGINE // GSAP_HYPERDRIVE</span>
-        <span>GATEKEEPER-v3 // MONITORING</span>
+        <span>GATEKEEPER // INFILTRATING</span>
       </div>
     </div>
   );
