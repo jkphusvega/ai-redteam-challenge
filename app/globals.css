@@ -1,38 +1,40 @@
 /* ============================================================
    globals.css — AI Red Team Challenge 글로벌 스타일
    
-   디자인 시스템:
-   - 다크 사이버펑크 테마 (딥 네이비 + 사이언 + 네온 그린)
-   - Noto Sans KR 폰트 (한국어 최적화)
-   - 커스텀 애니메이션
+   디자인 시스템: Cyberpunk Red Team HUD
+   - Deep Cyber Void 배경 + 글래스모피즘
+   - Neon Cyan / Electric Red / Terminal Green 액센트
+   - Space Grotesk + Pretendard + JetBrains Mono 타이포그래피
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
 @import "tailwindcss";
 
 /* ----------------------------------------------------------
    CSS 변수 (디자인 토큰)
    ---------------------------------------------------------- */
 :root {
-  /* 배경 */
-  --bg-base: #050d1a;
-  --bg-surface: #0a1628;
-  --bg-card: #0f1f38;
-  --bg-card-hover: #142847;
-  --bg-input: #081222;
+  /* 배경 — Deep Cyber Void */
+  --bg-base: #070a13;
+  --bg-surface: #0a0e18;
+  --bg-card: rgba(16, 19, 29, 0.75);
+  --bg-card-solid: #10131d;
+  --bg-card-hover: rgba(20, 24, 38, 0.85);
+  --bg-input: rgba(8, 12, 22, 0.9);
 
-  /* 테두리 */
-  --border-subtle: rgba(0, 200, 255, 0.12);
-  --border-default: rgba(0, 200, 255, 0.25);
-  --border-strong: rgba(0, 200, 255, 0.5);
+  /* 테두리 — 네온 시안 라인 */
+  --border-subtle: rgba(0, 240, 255, 0.1);
+  --border-default: rgba(0, 240, 255, 0.25);
+  --border-strong: rgba(0, 240, 255, 0.5);
 
   /* 브랜드 컬러 */
-  --cyan: #00c8ff;
-  --cyan-dim: rgba(0, 200, 255, 0.7);
-  --green: #00ff88;
-  --green-dim: rgba(0, 255, 136, 0.7);
-  --red: #ff3b5c;
-  --red-dim: rgba(255, 59, 92, 0.7);
+  --cyan: #00f0ff;
+  --cyan-dim: rgba(0, 240, 255, 0.7);
+  --green: #00ff66;
+  --green-dim: rgba(0, 255, 102, 0.7);
+  --red: #ff2a5f;
+  --red-bright: #ff1744;
+  --red-dim: rgba(255, 42, 95, 0.7);
   --yellow: #ffd700;
   --purple: #a855f7;
 
@@ -42,12 +44,13 @@
   --text-muted: rgba(232, 244, 255, 0.35);
 
   /* 글로우 효과 */
-  --glow-cyan: 0 0 20px rgba(0, 200, 255, 0.4);
-  --glow-green: 0 0 20px rgba(0, 255, 136, 0.4);
-  --glow-red: 0 0 20px rgba(255, 59, 92, 0.4);
+  --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.4), 0 0 60px rgba(0, 240, 255, 0.1);
+  --glow-green: 0 0 20px rgba(0, 255, 102, 0.4), 0 0 60px rgba(0, 255, 102, 0.1);
+  --glow-red: 0 0 20px rgba(255, 42, 95, 0.4), 0 0 60px rgba(255, 42, 95, 0.1);
 
   /* 폰트 */
   --font-sans: 'Noto Sans KR', sans-serif;
+  --font-display: 'Space Grotesk', 'Noto Sans KR', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
   /* 전환 */
@@ -99,8 +102,8 @@ body {
    ---------------------------------------------------------- */
 .bg-grid {
   background-image:
-    linear-gradient(rgba(0, 200, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 200, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(0, 240, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.02) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -123,6 +126,49 @@ body {
 .card-glow:hover {
   box-shadow: var(--glow-cyan);
   border-color: var(--border-strong);
+}
+
+/* 글래스모피즘 카드 */
+.card-glass {
+  background: rgba(16, 19, 29, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 24px;
+  transition: border-color var(--transition-normal),
+              box-shadow var(--transition-normal);
+}
+
+.card-glass:hover {
+  border-color: var(--border-default);
+}
+
+.card-glass-glow:hover {
+  box-shadow: var(--glow-cyan);
+  border-color: var(--border-strong);
+}
+
+/* HUD 패널 */
+.panel-hud {
+  background: rgba(7, 10, 19, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.panel-hud::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  opacity: 0.6;
 }
 
 /* ----------------------------------------------------------
@@ -154,33 +200,33 @@ body {
 .btn-primary {
   background: linear-gradient(135deg, var(--cyan), #0088cc);
   color: #000;
-  box-shadow: 0 4px 20px rgba(0, 200, 255, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 240, 255, 0.3);
 }
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 28px rgba(0, 200, 255, 0.5);
+  box-shadow: 0 6px 28px rgba(0, 240, 255, 0.5);
 }
 
 /* 성공 (그린) */
 .btn-success {
-  background: linear-gradient(135deg, var(--green), #00aa55);
+  background: linear-gradient(135deg, var(--green), #00aa44);
   color: #000;
-  box-shadow: 0 4px 20px rgba(0, 255, 136, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 255, 102, 0.3);
 }
 .btn-success:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 28px rgba(0, 255, 136, 0.5);
+  box-shadow: 0 6px 28px rgba(0, 255, 102, 0.5);
 }
 
 /* 위험 (레드) */
 .btn-danger {
   background: linear-gradient(135deg, var(--red), #cc1133);
   color: #fff;
-  box-shadow: 0 4px 20px rgba(255, 59, 92, 0.3);
+  box-shadow: 0 4px 20px rgba(255, 42, 95, 0.3);
 }
 .btn-danger:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 28px rgba(255, 59, 92, 0.5);
+  box-shadow: 0 6px 28px rgba(255, 42, 95, 0.5);
 }
 
 /* 아웃라인 */
@@ -190,7 +236,7 @@ body {
   border: 1px solid var(--border-default);
 }
 .btn-outline:hover:not(:disabled) {
-  background: rgba(0, 200, 255, 0.08);
+  background: rgba(0, 240, 255, 0.08);
   border-color: var(--border-strong);
 }
 
@@ -203,6 +249,80 @@ body {
 .btn-ghost:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
+}
+
+/* 네온 발광 버튼 */
+.btn-neon {
+  background: linear-gradient(135deg, var(--cyan), #0088cc);
+  color: #000;
+  font-weight: 800;
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.5), 0 0 40px rgba(0, 240, 255, 0.2);
+  animation: neonPulse 2s ease-in-out infinite;
+}
+.btn-neon:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 0 25px rgba(0, 240, 255, 0.7), 0 0 60px rgba(0, 240, 255, 0.3);
+}
+
+/* 인젝션 공격 칩 버튼 */
+.btn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid;
+  font-family: var(--font-mono);
+  text-align: left;
+  line-height: 1.4;
+}
+
+.btn-chip:hover {
+  transform: translateY(-1px);
+}
+
+.btn-chip-red {
+  background: rgba(255, 42, 95, 0.1);
+  border-color: rgba(255, 42, 95, 0.3);
+  color: var(--red);
+}
+.btn-chip-red:hover {
+  background: rgba(255, 42, 95, 0.2);
+  box-shadow: 0 0 15px rgba(255, 42, 95, 0.3);
+}
+
+.btn-chip-cyan {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.3);
+  color: var(--cyan);
+}
+.btn-chip-cyan:hover {
+  background: rgba(0, 240, 255, 0.15);
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+}
+
+.btn-chip-purple {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.3);
+  color: var(--purple);
+}
+.btn-chip-purple:hover {
+  background: rgba(168, 85, 247, 0.2);
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+}
+
+.btn-chip-green {
+  background: rgba(0, 255, 102, 0.08);
+  border-color: rgba(0, 255, 102, 0.3);
+  color: var(--green);
+}
+.btn-chip-green:hover {
+  background: rgba(0, 255, 102, 0.15);
+  box-shadow: 0 0 15px rgba(0, 255, 102, 0.3);
 }
 
 /* ----------------------------------------------------------
@@ -253,21 +373,21 @@ body {
 }
 
 .badge-cyan {
-  background: rgba(0, 200, 255, 0.15);
+  background: rgba(0, 240, 255, 0.15);
   color: var(--cyan);
-  border: 1px solid rgba(0, 200, 255, 0.3);
+  border: 1px solid rgba(0, 240, 255, 0.3);
 }
 
 .badge-green {
-  background: rgba(0, 255, 136, 0.15);
+  background: rgba(0, 255, 102, 0.15);
   color: var(--green);
-  border: 1px solid rgba(0, 255, 136, 0.3);
+  border: 1px solid rgba(0, 255, 102, 0.3);
 }
 
 .badge-red {
-  background: rgba(255, 59, 92, 0.15);
+  background: rgba(255, 42, 95, 0.15);
   color: var(--red);
-  border: 1px solid rgba(255, 59, 92, 0.3);
+  border: 1px solid rgba(255, 42, 95, 0.3);
 }
 
 .badge-yellow {
@@ -282,12 +402,24 @@ body {
   border: 1px solid rgba(168, 85, 247, 0.3);
 }
 
+/* HUD 경고 뱃지 */
+.badge-alert {
+  background: rgba(255, 42, 95, 0.2);
+  color: var(--red);
+  border: 1px solid rgba(255, 42, 95, 0.5);
+  animation: alertPulse 1.5s ease-in-out infinite;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 /* ----------------------------------------------------------
    채팅 버블
    ---------------------------------------------------------- */
 .bubble-user {
-  background: linear-gradient(135deg, rgba(0, 200, 255, 0.2), rgba(0, 136, 204, 0.2));
-  border: 1px solid rgba(0, 200, 255, 0.3);
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 136, 204, 0.2));
+  border: 1px solid rgba(0, 240, 255, 0.3);
   border-radius: 18px 18px 4px 18px;
   padding: 12px 16px;
   max-width: 75%;
@@ -304,8 +436,8 @@ body {
 }
 
 .bubble-ai.success {
-  background: rgba(0, 255, 136, 0.1);
-  border-color: rgba(0, 255, 136, 0.4);
+  background: rgba(0, 255, 102, 0.1);
+  border-color: rgba(0, 255, 102, 0.4);
   box-shadow: var(--glow-green);
 }
 
@@ -319,6 +451,7 @@ body {
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
 .text-mono { font-family: var(--font-mono); }
+.text-display { font-family: var(--font-display); }
 
 .gradient-text-cyan {
   background: linear-gradient(90deg, var(--cyan), #66d9ff);
@@ -332,6 +465,88 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* 시안 → 일렉트릭 레드 그라데이션 */
+.gradient-text-cyber {
+  background: linear-gradient(90deg, var(--cyan) 0%, #0088ff 40%, var(--red) 80%, var(--red-bright) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ----------------------------------------------------------
+   HUD 유틸리티
+   ---------------------------------------------------------- */
+
+/* 스캔 라인 오버레이 */
+.scanline-overlay {
+  position: relative;
+}
+.scanline-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 240, 255, 0.015) 2px,
+    rgba(0, 240, 255, 0.015) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 네온 보더 발광 */
+.neon-border-cyan {
+  border: 1px solid var(--cyan);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.3), inset 0 0 10px rgba(0, 240, 255, 0.05);
+}
+
+.neon-border-red {
+  border: 1px solid var(--red);
+  box-shadow: 0 0 10px rgba(255, 42, 95, 0.3), inset 0 0 10px rgba(255, 42, 95, 0.05);
+}
+
+.neon-border-green {
+  border: 1px solid var(--green);
+  box-shadow: 0 0 10px rgba(0, 255, 102, 0.3), inset 0 0 10px rgba(0, 255, 102, 0.05);
+}
+
+/* 펄스 인디케이터 도트 */
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  animation: pulseDot 2s ease-in-out infinite;
+}
+
+.pulse-dot-red {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+}
+
+.pulse-dot-green {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+
+/* 방화벽 게이지 */
+.firewall-gauge {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.firewall-gauge-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+  transition: width 0.5s ease;
+  box-shadow: 0 0 8px rgba(0, 255, 102, 0.5);
 }
 
 /* ----------------------------------------------------------
@@ -362,6 +577,34 @@ body {
   50% { opacity: 0.5; }
 }
 
+/* 네온 버튼 펄스 */
+@keyframes neonPulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.5), 0 0 40px rgba(0, 240, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.7), 0 0 60px rgba(0, 240, 255, 0.3);
+  }
+}
+
+/* 경고 뱃지 펄스 */
+@keyframes alertPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* 펄스 도트 */
+@keyframes pulseDot {
+  0%, 100% { 
+    transform: scale(1); 
+    opacity: 1; 
+  }
+  50% { 
+    transform: scale(1.5); 
+    opacity: 0.5; 
+  }
+}
+
 /* 타이핑 커서 */
 @keyframes blink {
   0%, 100% { opacity: 1; }
@@ -387,7 +630,66 @@ body {
   to { transform: scale(1); opacity: 1; }
 }
 
+/* 글리치 효과 */
+@keyframes glitch {
+  0%, 100% { transform: translate(0); }
+  10% { transform: translate(-2px, 1px); }
+  20% { transform: translate(2px, -1px); }
+  30% { transform: translate(-1px, 2px); }
+  40% { transform: translate(1px, -2px); }
+  50% { transform: translate(-2px, 0px); }
+  60% { transform: translate(2px, 1px); }
+  70% { transform: translate(0px, -1px); }
+  80% { transform: translate(-1px, 1px); }
+  90% { transform: translate(1px, 0px); }
+}
+
+/* 텍스트 글로우 펄스 */
+@keyframes textGlow {
+  0%, 100% { 
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.5); 
+  }
+  50% { 
+    text-shadow: 0 0 20px rgba(0, 240, 255, 0.8), 0 0 40px rgba(0, 240, 255, 0.3); 
+  }
+}
+
+/* HUD 슬라이드 인 (왼쪽에서) */
+@keyframes slideInLeft {
+  from { 
+    opacity: 0; 
+    transform: translateX(-30px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateX(0); 
+  }
+}
+
+/* HUD 슬라이드 인 (오른쪽에서) */
+@keyframes slideInRight {
+  from { 
+    opacity: 0; 
+    transform: translateX(30px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateX(0); 
+  }
+}
+
+/* 키 디코딩 애니메이션 */
+@keyframes keyDecode {
+  0% { color: var(--cyan); text-shadow: 0 0 20px var(--cyan); }
+  50% { color: var(--green); text-shadow: 0 0 30px var(--green), 0 0 60px rgba(0, 255, 102, 0.3); }
+  100% { color: var(--green); text-shadow: 0 0 20px var(--green); }
+}
+
 /* 애니메이션 유틸리티 클래스 */
+.animate-fade-in {
+  animation: fadeInUp 0.5s ease forwards;
+}
+
 .animate-fade-in-up {
   animation: fadeInUp 0.5s ease forwards;
 }
@@ -408,6 +710,26 @@ body {
   animation: scaleIn 0.3s ease forwards;
 }
 
+.animate-glitch {
+  animation: glitch 0.3s ease;
+}
+
+.animate-text-glow {
+  animation: textGlow 2s ease-in-out infinite;
+}
+
+.animate-slide-left {
+  animation: slideInLeft 0.5s ease forwards;
+}
+
+.animate-slide-right {
+  animation: slideInRight 0.5s ease forwards;
+}
+
+.animate-key-decode {
+  animation: keyDecode 1.5s ease forwards;
+}
+
 /* 딜레이 유틸리티 */
 .delay-100 { animation-delay: 0.1s; }
 .delay-200 { animation-delay: 0.2s; }
@@ -425,7 +747,7 @@ body {
 .spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(0, 200, 255, 0.2);
+  border: 2px solid rgba(0, 240, 255, 0.2);
   border-top-color: var(--cyan);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -438,7 +760,7 @@ body {
   appearance: none;
   -webkit-appearance: none;
   padding: 10px 36px 10px 14px;
-  background: var(--bg-input) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2300c8ff' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 12px center;
+  background: var(--bg-input) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2300f0ff' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 12px center;
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   color: var(--text-primary);
@@ -505,12 +827,12 @@ body {
 }
 
 .toggle input:checked + .toggle-slider {
-  background: rgba(0, 255, 136, 0.2);
-  border-color: rgba(0, 255, 136, 0.5);
+  background: rgba(0, 255, 102, 0.2);
+  border-color: rgba(0, 255, 102, 0.5);
 }
 
 .toggle input:checked + .toggle-slider::before {
   transform: translate(22px, -50%);
   background: var(--green);
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  box-shadow: 0 0 10px rgba(0, 255, 102, 0.5);
 }

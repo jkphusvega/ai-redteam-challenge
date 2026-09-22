@@ -4,13 +4,17 @@
 // app/page.tsx — 2실 방탈출 미션 입장 로비 & 대시보드
 //
 // [2실: AI 보안 통제실 - 프롬프트 인젝션 & 보안 규칙 제작]
+// UI: Cyberpunk Red Team HUD 디자인
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import gsap from 'gsap';
 import { createBrowserSupabase } from '@/lib/supabase';
 import { ESCAPE_ROOM_CONFIG, ACQUIRED_ITEMS } from '@/lib/escapeRoomData';
 import type { GameConfigRow } from '@/lib/types';
+import TextScramble from '@/app/components/TextScramble';
+import SplashScreen from '@/app/components/SplashScreen';
 
 export default function HomePage() {
   const router = useRouter();
@@ -33,7 +37,14 @@ export default function HomePage() {
   const [mentorPassword, setMentorPassword] = useState('');
   const [mentorError, setMentorError] = useState('');
 
+  // 스플래시 화면 상태
+  const [showSplash, setShowSplash] = useState(false);
+
   useEffect(() => {
+    // 세션당 1회만 스플래시 표시
+    if (!sessionStorage.getItem('splash_shown')) {
+      setShowSplash(true);
+    }
     // localStorage에서 팀 이름 복원
     const savedTeam = localStorage.getItem('teamName');
     if (savedTeam) setTeamName(savedTeam);
@@ -97,8 +108,36 @@ export default function HomePage() {
     }
   }
 
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!showSplash && mainRef.current) {
+      const items = mainRef.current.querySelectorAll('.hud-stagger');
+      if (items.length > 0) {
+        gsap.fromTo(
+          items,
+          { opacity: 0, y: 22, filter: 'blur(4px)' },
+          {
+            opacity: 1,
+            y: 0,
+            filter: 'blur(0px)',
+            duration: 0.55,
+            stagger: 0.08,
+            ease: 'power2.out',
+          }
+        );
+      }
+    }
+  }, [showSplash]);
+
+  // 스플래시 화면 표시 중이면 스플래시만 렌더링
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
+
   return (
     <main
+      ref={mainRef}
       style={{
         minHeight: '100vh',
         maxWidth: '1000px',
@@ -106,18 +145,17 @@ export default function HomePage() {
         padding: '24px 20px 60px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '28px',
+        gap: '24px',
       }}
     >
       {/* 멘토 / 멘티 모드 선택 바 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+      <div className="hud-stagger" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
         <div
+          className="card-glass"
           style={{
             display: 'flex',
-            background: 'rgba(10, 22, 40, 0.8)',
             padding: '4px',
             borderRadius: '10px',
-            border: '1px solid var(--border-subtle)',
           }}
         >
           <button
@@ -126,11 +164,12 @@ export default function HomePage() {
               padding: '6px 14px',
               borderRadius: '6px',
               background: 'var(--cyan)',
-              color: '#050d1a',
+              color: '#000',
               fontWeight: 800,
-              fontSize: '13px',
+              fontSize: '12px',
               border: 'none',
               cursor: 'default',
+              fontFamily: 'var(--font-mono)',
             }}
           >
             👥 멘티(학생) 입장
@@ -148,62 +187,79 @@ export default function HomePage() {
               background: 'transparent',
               color: 'var(--text-secondary)',
               fontWeight: 700,
-              fontSize: '13px',
+              fontSize: '12px',
               border: 'none',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
+              fontFamily: 'var(--font-mono)',
             }}
           >
             <span>🔑 멘토 모드</span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>(0918)</span>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>(0918)</span>
           </button>
         </div>
       </div>
+
       {/* 히어로 헤더 */}
-      <div className="animate-fade-in" style={{ textAlign: 'center' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-          <span className="badge badge-cyan" style={{ fontSize: '13px', padding: '4px 12px' }}>
+      <div className="hud-stagger" style={{ textAlign: 'center' }}>
+        {/* 상단 서브 타이틀 */}
+        <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '3px', textTransform: 'uppercase', marginBottom: '8px' }}>
+          <TextScramble text="CYBER WARGAME // AI SECURITY CONTROL ROOM" duration={30} />
+        </div>
+
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <span className="badge badge-cyan" style={{ fontSize: '12px', padding: '4px 12px', fontFamily: 'var(--font-mono)' }}>
             {ESCAPE_ROOM_CONFIG.roomName}
           </span>
           <button
             type="button"
             onClick={() => setShowItemModal(true)}
             className="badge badge-yellow"
-            style={{ fontSize: '13px', padding: '4px 12px', cursor: 'pointer', border: 'none' }}
+            style={{ fontSize: '12px', padding: '4px 12px', cursor: 'pointer', border: 'none', fontFamily: 'var(--font-mono)' }}
           >
-            📜 1실 획득 설계도 & 힌트 카드 보기
+            📜 1실 획득 설계도 &amp; 힌트 카드 보기
           </button>
         </div>
 
         <h1
+          className="gradient-text-cyber"
           style={{
             fontSize: 'clamp(28px, 5vw, 44px)',
             fontWeight: 900,
             lineHeight: 1.2,
             margin: '0 0 16px',
+            fontFamily: 'var(--font-display)',
           }}
         >
-          <span className="gradient-text-cyan">{ESCAPE_ROOM_CONFIG.missionTitle}</span>
+          <TextScramble text="#02 Mission : 비밀번호 탈취하기" duration={45} delay={300} />
         </h1>
+
         <p
           style={{
             maxWidth: '680px',
             margin: '0 auto',
             color: 'var(--text-secondary)',
-            fontSize: '16px',
+            fontSize: '15px',
             lineHeight: 1.6,
           }}
         >
-          보안 통제실 수문장 AI의 취약점을 공략하여 <strong>MASTER KEY</strong>를 탈취하고,
-          보안 담당자 입장에서 <strong>옳은 보안 규칙 3장</strong>을 조합하여 공격을 완벽히 차단하세요!
+          보안 통제실 수문장 AI의 취약점을 공략하여 <strong style={{ color: 'var(--cyan)' }}>MASTER KEY</strong>를 탈취하고,
+          보안 담당자 입장에서 <strong style={{ color: 'var(--green)' }}>옳은 보안 규칙 3장</strong>을 조합하여 공격을 완벽히 차단하세요!
         </p>
+
+        {/* HIGH-RISK 뱃지 */}
+        <div style={{ marginTop: '14px' }}>
+          <span className="badge badge-alert" style={{ fontSize: '10px', padding: '4px 12px' }}>
+            DEFCON-2 // HIGH-RISK JAILBREAK EXERCISE
+          </span>
+        </div>
       </div>
 
       {/* 팀 이름 입력 & 입장 카드 */}
       <div
-        className="card card-glow animate-fade-in delay-100"
+        className="card-glass hud-stagger"
         style={{
           maxWidth: '560px',
           width: '100%',
@@ -211,12 +267,16 @@ export default function HomePage() {
           textAlign: 'center',
           borderColor: 'var(--border-strong)',
           padding: '28px',
+          boxShadow: 'var(--glow-cyan)',
         }}
       >
-        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--cyan)', marginBottom: '8px' }}>
-          🏷️ 미션 참가자 등록
+        <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--cyan)', marginBottom: '4px', fontFamily: 'var(--font-mono)', letterSpacing: '2px' }}>
+          AGENT REGISTRATION
         </div>
-        <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '12px' }}>
+          🏷️ 미션 참가자(팀) 등록
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
           <input
             type="text"
             value={teamName}
@@ -225,32 +285,34 @@ export default function HomePage() {
             placeholder="팀 이름 또는 별명을 입력하세요 (예: 사이버방패 1조)"
             style={{
               flex: 1,
-              background: 'var(--bg-input)',
+              background: 'rgba(0, 0, 0, 0.4)',
               border: error ? '1px solid var(--red)' : '1px solid var(--border-default)',
               borderRadius: '8px',
               padding: '14px 16px',
-              color: 'var(--text-primary)',
-              fontSize: '15px',
+              color: 'var(--cyan)',
+              fontSize: '14px',
+              fontFamily: 'var(--font-mono)',
               outline: 'none',
             }}
           />
           <button
             onClick={handleEnterMission}
             disabled={starting}
-            className="btn btn-primary"
+            className="btn-neon"
             style={{
               padding: '0 24px',
-              fontSize: '15px',
+              fontSize: '14px',
               whiteSpace: 'nowrap',
-              boxShadow: 'var(--glow-cyan)',
+              borderRadius: '8px',
+              fontFamily: 'var(--font-mono)',
             }}
           >
-            {starting ? '입장 중...' : '🚀 미션 시작'}
+            {starting ? 'ENTERING...' : '⚡ 미션 시작'}
           </button>
         </div>
         {error && (
-          <p style={{ color: 'var(--red)', fontSize: '13px', marginTop: '8px', textAlign: 'left' }}>
-            {error}
+          <p style={{ color: 'var(--red)', fontSize: '12px', marginTop: '8px', textAlign: 'left', fontFamily: 'var(--font-mono)' }}>
+            ⚠ {error}
           </p>
         )}
       </div>
@@ -260,26 +322,26 @@ export default function HomePage() {
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '16px',
+          gap: '14px',
         }}
-        className="animate-fade-in delay-200"
+        className="hud-stagger"
       >
         {/* 미션 1 카드 */}
         <div
-          className="card"
+          className="card-glass"
           style={{
             borderColor: m1Done ? 'var(--green)' : 'var(--border-default)',
-            background: m1Done ? 'rgba(0, 255, 136, 0.04)' : 'var(--bg-card)',
+            boxShadow: m1Done ? '0 0 15px rgba(0, 255, 102, 0.15)' : 'none',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <span style={{ fontSize: '28px' }}>🎯</span>
-            <span className={m1Done ? 'badge badge-green' : 'badge badge-cyan'}>
-              {m1Done ? '탈취 완료 ✓' : '미션 1'}
+            <span className={m1Done ? 'badge badge-green' : 'badge badge-cyan'} style={{ fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
+              {m1Done ? 'EXTRACTED ✓' : 'STAGE 01'}
             </span>
           </div>
-          <h3 style={{ fontSize: '17px', fontWeight: 800, margin: '0 0 8px' }}>
-            ① 프롬프트 인젝션 & MASTER KEY 탈취
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
+            ① 프롬프트 인젝션 &amp; MASTER KEY 탈취
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
             비밀번호 보호 규칙이 설정된 수문장 AI를 대상으로 1실 힌트(가상 시나리오, 점검 모드 오버라이드)를 적용하여 기밀 코드를 누출시키세요.
@@ -288,19 +350,19 @@ export default function HomePage() {
 
         {/* 미션 2 카드 */}
         <div
-          className="card"
+          className="card-glass"
           style={{
             borderColor: m2Done ? 'var(--green)' : 'var(--border-default)',
-            background: m2Done ? 'rgba(0, 255, 136, 0.04)' : 'var(--bg-card)',
+            boxShadow: m2Done ? '0 0 15px rgba(0, 255, 102, 0.15)' : 'none',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <span style={{ fontSize: '28px' }}>🛡️</span>
-            <span className={m2Done ? 'badge badge-green' : 'badge badge-purple'}>
-              {m2Done ? '방어 성공 ✓' : '미션 2'}
+            <span className={m2Done ? 'badge badge-green' : 'badge badge-purple'} style={{ fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
+              {m2Done ? 'SECURED ✓' : 'STAGE 02'}
             </span>
           </div>
-          <h3 style={{ fontSize: '17px', fontWeight: 800, margin: '0 0 8px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
             ② 보안 방어 규칙 제작 및 차단 검증
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
@@ -309,13 +371,13 @@ export default function HomePage() {
         </div>
 
         {/* 미션 마무리 카드 */}
-        <div className="card">
+        <div className="card-glass">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <span style={{ fontSize: '28px' }}>🔓</span>
-            <span className="badge badge-yellow">미션 마무리</span>
+            <span className="badge badge-yellow" style={{ fontFamily: 'var(--font-mono)', fontSize: '10px' }}>STAGE 03</span>
           </div>
-          <h3 style={{ fontSize: '17px', fontWeight: 800, margin: '0 0 8px' }}>
-            ③ 수납함 잠금 해제 & 3실 이동
+          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
+            ③ 수납함 잠금 해제 &amp; 3실 이동
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
             MASTER KEY의 숫자 네 자리를 찾아 수납함을 열고, 3실용 팩트체크 자료와 빨간 셀로판지를 획득하여 다음 방으로 이동하세요!
@@ -329,8 +391,8 @@ export default function HomePage() {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.8)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(12px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -340,13 +402,12 @@ export default function HomePage() {
           onClick={() => setShowItemModal(false)}
         >
           <div
-            className="card animate-scale-in"
+            className="card-glass animate-scale-in"
             style={{
               maxWidth: '700px',
               width: '100%',
               maxHeight: '85vh',
               overflowY: 'auto',
-              background: 'var(--bg-card)',
               borderColor: 'var(--border-strong)',
               boxShadow: 'var(--glow-cyan)',
               padding: '24px',
@@ -356,19 +417,13 @@ export default function HomePage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '22px' }}>📜</span>
-                <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>
+                <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, fontFamily: 'var(--font-display)' }}>
                   1실에서 획득한 단서 및 보안 설계도
                 </h3>
               </div>
               <button
                 onClick={() => setShowItemModal(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '20px',
-                  cursor: 'pointer',
-                }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '20px', cursor: 'pointer' }}
               >
                 ✕
               </button>
@@ -379,13 +434,14 @@ export default function HomePage() {
                 onClick={() => setSelectedItemTab('blueprint')}
                 style={{
                   background: selectedItemTab === 'blueprint' ? 'var(--cyan)' : 'transparent',
-                  color: selectedItemTab === 'blueprint' ? '#050d1a' : 'var(--text-secondary)',
+                  color: selectedItemTab === 'blueprint' ? '#000' : 'var(--text-secondary)',
                   border: 'none',
                   borderRadius: '6px',
                   padding: '6px 14px',
-                  fontSize: '13px',
+                  fontSize: '12px',
                   fontWeight: 700,
                   cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)',
                 }}
               >
                 📐 보안 AI 설계도 (1건)
@@ -394,13 +450,14 @@ export default function HomePage() {
                 onClick={() => setSelectedItemTab('hint')}
                 style={{
                   background: selectedItemTab === 'hint' ? 'var(--cyan)' : 'transparent',
-                  color: selectedItemTab === 'hint' ? '#050d1a' : 'var(--text-secondary)',
+                  color: selectedItemTab === 'hint' ? '#000' : 'var(--text-secondary)',
                   border: 'none',
                   borderRadius: '6px',
                   padding: '6px 14px',
-                  fontSize: '13px',
+                  fontSize: '12px',
                   fontWeight: 700,
                   cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)',
                 }}
               >
                 💡 침투 힌트 카드 (3건)
@@ -412,7 +469,7 @@ export default function HomePage() {
                 <div
                   key={item.id}
                   style={{
-                    background: 'rgba(255, 255, 255, 0.03)',
+                    background: 'rgba(0, 0, 0, 0.3)',
                     border: '1px solid var(--border-subtle)',
                     borderRadius: '10px',
                     padding: '16px',
@@ -420,10 +477,10 @@ export default function HomePage() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                     <span style={{ fontSize: '20px' }}>{item.emoji}</span>
-                    <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--cyan)' }}>{item.title}</span>
+                    <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--cyan)' }}>{item.title}</span>
                     <span className="badge badge-yellow" style={{ fontSize: '10px' }}>{item.badge}</span>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>{item.subtitle}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px', fontFamily: 'var(--font-mono)' }}>{item.subtitle}</div>
                   <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                     {item.content.map((line, liIdx) => (
                       <li key={liIdx}>{line}</li>
@@ -434,8 +491,8 @@ export default function HomePage() {
             </div>
 
             <div style={{ marginTop: '20px', textAlign: 'right' }}>
-              <button onClick={() => setShowItemModal(false)} className="btn btn-secondary" style={{ padding: '8px 20px', fontSize: '13px' }}>
-                닫기
+              <button onClick={() => setShowItemModal(false)} className="btn btn-ghost" style={{ padding: '8px 20px', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
+                CLOSE
               </button>
             </div>
           </div>
@@ -448,8 +505,8 @@ export default function HomePage() {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.85)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(0, 0, 0, 0.9)',
+            backdropFilter: 'blur(12px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -459,7 +516,7 @@ export default function HomePage() {
           onClick={() => setShowMentorModal(false)}
         >
           <div
-            className="card animate-scale-in"
+            className="card-glass animate-scale-in"
             style={{
               maxWidth: '400px',
               width: '100%',
@@ -470,11 +527,11 @@ export default function HomePage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ fontSize: '44px', marginBottom: '10px' }}>🔑</div>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, margin: '0 0 6px' }} className="gradient-text-cyan">
+            <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 6px', fontFamily: 'var(--font-display)' }} className="gradient-text-cyan">
               멘토 전용 모드 접속
             </h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-              교사 및 멘토 비밀번호(4자리)를 입력하세요.
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '20px', fontFamily: 'var(--font-mono)' }}>
+              ENTER MENTOR ACCESS CODE (4-DIGIT)
             </p>
 
             <form onSubmit={handleMentorLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -485,34 +542,35 @@ export default function HomePage() {
                 placeholder="비밀번호 입력 (0918)"
                 autoFocus
                 style={{
-                  background: 'var(--bg-input)',
+                  background: 'rgba(0, 0, 0, 0.4)',
                   border: mentorError ? '1px solid var(--red)' : '1px solid var(--border-default)',
                   borderRadius: '8px',
                   padding: '12px',
-                  color: 'var(--text-primary)',
-                  fontSize: '16px',
+                  color: 'var(--cyan)',
+                  fontSize: '18px',
                   textAlign: 'center',
-                  letterSpacing: '4px',
+                  letterSpacing: '6px',
                   outline: 'none',
+                  fontFamily: 'var(--font-mono)',
                 }}
               />
-              {mentorError && <div style={{ fontSize: '12px', color: 'var(--red)', fontWeight: 600 }}>{mentorError}</div>}
+              {mentorError && <div style={{ fontSize: '12px', color: 'var(--red)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{mentorError}</div>}
 
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button
                   type="button"
                   onClick={() => setShowMentorModal(false)}
-                  className="btn btn-secondary"
-                  style={{ flex: 1, padding: '10px', fontSize: '14px' }}
+                  className="btn btn-ghost"
+                  style={{ flex: 1, padding: '10px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
                 >
-                  취소
+                  CANCEL
                 </button>
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  style={{ flex: 1, padding: '10px', fontSize: '14px' }}
+                  style={{ flex: 1, padding: '10px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
                 >
-                  확인
+                  ACCESS
                 </button>
               </div>
             </form>
