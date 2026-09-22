@@ -409,23 +409,26 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
             style={{
               width: '118px',
               height: '118px',
-              borderRadius: '20px',
+              borderRadius: '24px',
               overflow: 'hidden',
-              border: '2px solid rgba(0, 240, 255, 0.7)',
-              boxShadow: '0 0 25px rgba(0, 240, 255, 0.45), inset 0 0 15px rgba(0, 240, 255, 0.2)',
-              background: '#000',
+              border: '2px solid rgba(0, 240, 255, 0.75)',
+              boxShadow: '0 0 28px rgba(0, 240, 255, 0.5), inset 0 0 16px rgba(0, 240, 255, 0.25)',
+              background: '#04060b',
               position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/shadow-breach-emblem.jpg"
-              alt="Shadow Breach Emblem"
+              src="/shadow-breach-emblem.jpg?v=2"
+              alt="Shadow Breach Agent Emblem"
               style={{
                 width: '100%',
                 height: '100%',
                 objectFit: 'cover',
-                filter: 'contrast(1.1) brightness(1.05)',
+                filter: 'contrast(1.15) brightness(1.1)',
               }}
             />
           </div>
