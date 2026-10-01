@@ -5,7 +5,7 @@
 //   1. 요청 바디 검증
 //   2. Supabase(설정 시) 또는 로컬 기본값에서 game_config 조회
 //   3. 스테이지 시스템 프롬프트 선택 (동적 비밀 코드 주입)
-//   4. Gemini 2.0 Flash 호출 (API 키가 없거나 실패 시 스마트 모의 엔진으로 자동 폴백)
+//   4. Gemini 3.6 Flash 호출 (API 키가 없거나 실패 시 스마트 모의 엔진으로 자동 폴백)
 //   5. AI 응답 내부 메타 텍스트 제거 및 정제
 //   6. judge.ts로 비밀 코드 노출 판정
 //   7. Supabase(설정 시) attempts 테이블에 기록
@@ -194,9 +194,10 @@ export async function POST(req: NextRequest) {
 
   if (genAI) {
     try {
-      // 무료 티어 호환 모델: gemini-2.0-flash 또는 gemini-1.5-flash
+      // 호환 모델: gemini-3.6-flash (환경변수 GEMINI_MODEL 지원)
+      const modelName = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
       const model = genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash',
+        model: modelName,
         systemInstruction: systemPrompt,
         safetySettings: REDTEAM_SAFETY_SETTINGS,
       });

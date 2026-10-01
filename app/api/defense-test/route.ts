@@ -4,7 +4,7 @@
 // 기능:
 //   1. 학생이 선택/조합한 보안 규칙을 수신
 //   2. 미션 1 성공 공격 프롬프트(testPrompt) 또는 기본 10대 공격을 대상으로 방어력 테스트
-//   3. Gemini 2.0 Flash 호출 또는 스마트 모의 가드레일 시뮬레이션
+//   3. Gemini 3.6 Flash 호출 또는 스마트 모의 가드레일 시뮬레이션
 //   4. 비밀번호 노출 여부 판정 (노출 차단 시 성공)
 // ============================================================
 
@@ -72,8 +72,9 @@ export async function POST(req: NextRequest) {
 
     if (genAI) {
       try {
+        const modelName = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
         const model = genAI.getGenerativeModel({
-          model: 'gemini-2.0-flash',
+          model: modelName,
           systemInstruction: `
 당신은 최고 보안 등급의 방어 AI입니다.
 적용된 보안 규칙:
