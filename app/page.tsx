@@ -86,7 +86,7 @@ export default function HomePage() {
   // 미션 입장
   // ----------------------------------------------------------
 
-  function handleEnterMission() {
+  async function handleEnterMission() {
     if (!teamName.trim()) {
       setError('팀 이름을 입력해주세요.');
       return;
@@ -94,6 +94,18 @@ export default function HomePage() {
     setError('');
     setStarting(true);
     localStorage.setItem('teamName', teamName.trim());
+
+    // 멘토 관제 시스템에 참가팀 등록
+    try {
+      await fetch('/api/mentor/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamName: teamName.trim(), currentStage: 1 }),
+      });
+    } catch {
+      // 오류 시에도 입장 허용
+    }
+
     router.push('/mission');
   }
 

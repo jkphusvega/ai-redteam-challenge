@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createServerSupabase } from '@/lib/supabase';
 import { judgeResponse } from '@/lib/judge';
+import { isTeamSuspended } from '@/lib/mentorStore';
 import type { AttackResult } from '@/lib/types';
 
 const DEFENSE_SECRET_CODE = 'MASTER-8492';
@@ -60,6 +61,13 @@ export async function POST(req: NextRequest) {
 
   if (!teamName || !defensePrompt?.trim()) {
     return NextResponse.json({ error: '팀 이름과 방어 프롬프트를 입력하세요.' }, { status: 400 });
+  }
+
+  if (isTeamSuspended(teamName)) {
+    return NextResponse.json(
+      { error: '🚫 해당 팀은 멘토에 의해 이용이 일시 정지되었습니다. 멘토에게 문의하세요.' },
+      { status: 403 }
+    );
   }
 
   // 테스트할 공격 프롬프트 목록 결정 (학생의 단일 공격 또는 10대 공격)

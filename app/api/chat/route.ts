@@ -17,6 +17,7 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/ge
 import { createServerSupabase } from '@/lib/supabase';
 import { getSystemPrompt, getStage, DEFAULT_STAGE1_CODE, DEFAULT_STAGE2_CODE } from '@/lib/stagePrompts';
 import { judgeResponse } from '@/lib/judge';
+import { isTeamSuspended, registerOrHeartbeatTeam } from '@/lib/mentorStore';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
 
 // ----------------------------------------------------------
@@ -226,6 +227,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '유효하지 않은 스테이지입니다.' }, { status: 400 });
   }
 
+  // 멘토에 의한 팀 일시 정지 확인
+  if (isTeamSuspended(teamName)) {
+    return NextResponse.json(
+      { error: '🚫 해당 팀은 멘토에 의해 이용이 일시 정지되었습니다. 멘토에게 문의하세요.' },
+      { status: 403 }
+    );
+  }
+
+  // 멘토 관제용 팀 하트비트
+  registerOrHeartbeatTeam({
+    teamName,
+    currentStage: stageId,
+    turnCount: turnNumber,
+  });
+
   const supabase = createServerSupabase();
 
   // ---- 2. game_config 조회 (Supabase가 없으면 기본값 사용) ----
@@ -298,6 +314,16 @@ export async function POST(req: NextRequest) {
 
   // ---- 4. 성공 판정 ----
   const { success, matchedPattern } = judgeResponse(aiResponse, stage.secretCode);
+
+  if (success) {
+    registerOrHeartbeatTeam({
+      teamName,
+      currentStage: stageId === 1 ? 2 : stageId,
+      turnCount: turnNumber,
+      mission1Cleared: stageId === 1 ? true : undefined,
+      mission2Cleared: stageId === 2 ? true : undefined,
+    });
+  }
 
   // ---- 5. Supabase에 시도 기록 (옵션) ----
   if (supabase) {
