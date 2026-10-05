@@ -147,3 +147,19 @@ export interface AdminConfigPatch {
   isGameActive?: boolean;
   newPassword?: string;
 }
+
+// ----------------------------------------------------------
+// 멘토 관제 & 참가팀
+// ----------------------------------------------------------
+
+/** 참가팀 실시간 정보 */
+export interface TeamRecord {
+  teamName: string;
+  status: 'active' | 'suspended';
+  createdAt: string;
+  lastActive: string;
+  currentStage: number; // 1 | 2 | 3
+  mission1Cleared: boolean;
+  mission2Cleared: boolean;
+  turnCount: number;
+}

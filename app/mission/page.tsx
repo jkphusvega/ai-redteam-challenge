@@ -13,6 +13,7 @@
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import gsap from 'gsap';
 import {
   ESCAPE_ROOM_CONFIG,
@@ -92,6 +93,8 @@ const STAGE2_ATTACK_CHIPS = [
 ];
 
 export default function MissionPage() {
+  const router = useRouter();
+
   // 기본 상태
   const [teamName, setTeamName] = useState('');
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
@@ -107,6 +110,10 @@ export default function MissionPage() {
   const [successfulAttackPrompt, setSuccessfulAttackPrompt] = useState('');
   const [masterKeyCode, setMasterKeyCode] = useState(ESCAPE_ROOM_CONFIG.masterKey);
   const [showM1SuccessModal, setShowM1SuccessModal] = useState(false);
+  const [m1Countdown, setM1Countdown] = useState<number | null>(null);
+
+  // 멘토 관제에 따른 상태 (팀 일시 정지 여부)
+  const [isSuspended, setIsSuspended] = useState(false);
 
   // 미션 2: 보안 규칙 조합 (Security Rule Collision) 상태
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
@@ -152,8 +159,17 @@ export default function MissionPage() {
     if (savedPrompt) {
       setSuccessfulAttackPrompt(savedPrompt);
     }
-    if (savedM1) setMission1Success(true);
-    if (savedM2) setMission2Success(true);
+    if (savedM1) {
+      setMission1Success(true);
+      // 이미 미션 1을 완료한 경우 미션 2로 자동 진입
+      if (!savedM2) {
+        setCurrentStep(2);
+      }
+    }
+    if (savedM2) {
+      setMission2Success(true);
+      setCurrentStep(3);
+    }
 
     // 초기 인사 메시지
     setChatMessages([
@@ -164,6 +180,62 @@ export default function MissionPage() {
       },
     ]);
   }, []);
+
+  // 미션 1 클리어 후 미션 2 자동 전환 카운트다운 타이머
+  useEffect(() => {
+    if (m1Countdown === null) return;
+    if (m1Countdown <= 0) {
+      setShowM1SuccessModal(false);
+      setCurrentStep(2);
+      setM1Countdown(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setM1Countdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [m1Countdown]);
+
+  // 멘토 관제 하트비트 & 팀 상태 확인 (3.5초 주기)
+  useEffect(() => {
+    if (!teamName) return;
+
+    async function checkTeamStatusAndHeartbeat() {
+      try {
+        const res = await fetch('/api/mentor/teams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            teamName,
+            currentStage: currentStep,
+            mission1Cleared: mission1Success,
+            mission2Cleared: mission2Success,
+            turnCount,
+          }),
+        });
+
+        if (res.status === 404) {
+          alert('멘토에 의해 참가팀이 삭제 또는 초기화되었습니다. 로비 화면으로 이동합니다.');
+          localStorage.removeItem('teamName');
+          localStorage.removeItem('mission1Success');
+          localStorage.removeItem('mission2Success');
+          router.push('/');
+          return;
+        }
+
+        if (res.ok) {
+          const data = await res.json();
+          setIsSuspended(Boolean(data.isSuspended));
+        }
+      } catch {
+        // 백그라운드 폴링 무시
+      }
+    }
+
+    checkTeamStatusAndHeartbeat();
+    const interval = setInterval(checkTeamStatusAndHeartbeat, 3500);
+    return () => clearInterval(interval);
+  }, [teamName, currentStep, mission1Success, mission2Success, turnCount, router]);
 
   // 멘토가 우리 팀에게 보낸 힌트 실시간 확인 (3.5초 주기)
   useEffect(() => {
@@ -283,6 +355,7 @@ export default function MissionPage() {
           setSuccessfulAttackPrompt(promptToSend.trim());
           setMasterKeyCode(ESCAPE_ROOM_CONFIG.masterKey);
           setShowM1SuccessModal(true);
+          setM1Countdown(3); // 3초 카운트다운 시작 후 미션 2로 자동 이동
 
           localStorage.setItem('mission1Success', 'true');
           localStorage.setItem('successfulAttackPrompt', promptToSend.trim());
@@ -584,6 +657,31 @@ export default function MissionPage() {
             </button>
           </div>
         </div>
+
+        {/* 팀 일시 정지 경고 배너 */}
+        {isSuspended && (
+          <div
+            style={{
+              maxWidth: '1200px',
+              margin: '12px auto 0',
+              padding: '12px 18px',
+              borderRadius: '8px',
+              background: 'rgba(255, 59, 92, 0.2)',
+              border: '1px solid var(--red)',
+              boxShadow: '0 0 20px rgba(255, 59, 92, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              textAlign: 'center',
+            }}
+          >
+            <span style={{ fontSize: '20px' }}>🚫</span>
+            <span style={{ fontSize: '13px', fontWeight: 800, color: '#ff4d6d', fontFamily: 'var(--font-mono)' }}>
+              [SYSTEM LOCKOUT: 팀 활동 일시 정지] 멘토에 의해 참가팀 활동이 일시 정지되었습니다. 멘토의 지시를 확인하세요.
+            </span>
+          </div>
+        )}
 
         {/* 미션 헤더 & 3단계 스테이지 인디케이터 */}
         <div style={{ maxWidth: '1200px', margin: '14px auto 0' }}>
@@ -1058,31 +1156,35 @@ export default function MissionPage() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      handleSendMessage();
+                      if (!isSuspended) handleSendMessage();
                     }
                   }}
-                  placeholder=">> 인젝션 공격 프롬프트를 주입하세요..."
+                  placeholder={
+                    isSuspended
+                      ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
+                      : '>> 인젝션 공격 프롬프트를 주입하세요...'
+                  }
                   style={{
                     flex: 1,
-                    background: 'rgba(0, 0, 0, 0.4)',
-                    border: '1px solid var(--border-default)',
+                    background: isSuspended ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.4)',
+                    border: isSuspended ? '1px solid var(--red)' : '1px solid var(--border-default)',
                     borderRadius: '8px',
                     padding: '12px 16px',
-                    color: 'var(--cyan)',
+                    color: isSuspended ? 'var(--red)' : 'var(--cyan)',
                     fontSize: '14px',
                     fontFamily: 'var(--font-mono)',
                     outline: 'none',
                   }}
-                  disabled={isSending}
+                  disabled={isSending || isSuspended}
                 />
                 <button
                   ref={sendBtnRef}
                   onClick={() => handleSendMessage()}
-                  disabled={isSending || !inputMessage.trim()}
+                  disabled={isSending || !inputMessage.trim() || isSuspended}
                   className="btn-neon"
                   style={{ padding: '0 24px', fontSize: '13px', whiteSpace: 'nowrap', borderRadius: '8px', fontFamily: 'var(--font-mono)' }}
                 >
-                  {isSending ? '전송 중...' : '⚡ 공격 패킷 전송 (INJECT)'}
+                  {isSending ? '전송 중...' : isSuspended ? '정지됨' : '⚡ 공격 패킷 전송 (INJECT)'}
                 </button>
               </div>
             </div>
@@ -1669,16 +1771,20 @@ export default function MissionPage() {
                     type="text"
                     value={stage2InputMessage}
                     onChange={(e) => setStage2InputMessage(e.target.value)}
-                    placeholder=">> 장착된 규칙의 틈새를 파고드는 질문을 입력하세요..."
-                    disabled={stage2IsSending}
+                    placeholder={
+                      isSuspended
+                        ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
+                        : '>> 장착된 규칙의 틈새를 파고드는 질문을 입력하세요...'
+                    }
+                    disabled={stage2IsSending || isSuspended}
                     style={{
                       flex: 1,
-                      background: 'rgba(0, 0, 0, 0.5)',
-                      border: '1px solid var(--border-default)',
+                      background: isSuspended ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.5)',
+                      border: isSuspended ? '1px solid var(--red)' : '1px solid var(--border-default)',
                       borderRadius: '8px',
                       padding: '12px 16px',
                       fontSize: '13px',
-                      color: 'var(--text-primary)',
+                      color: isSuspended ? 'var(--red)' : 'var(--text-primary)',
                       fontFamily: 'var(--font-mono)',
                       outline: 'none',
                     }}
@@ -1686,11 +1792,11 @@ export default function MissionPage() {
                   <button
                     ref={stage2SendBtnRef}
                     type="submit"
-                    disabled={stage2IsSending || !stage2InputMessage.trim()}
+                    disabled={stage2IsSending || !stage2InputMessage.trim() || isSuspended}
                     className="btn btn-primary"
                     style={{ padding: '0 24px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
                   >
-                    전송
+                    {isSuspended ? '정지됨' : '전송'}
                   </button>
                 </form>
 
@@ -2180,23 +2286,63 @@ export default function MissionPage() {
               </div>
             </div>
 
+            {/* 자동 이동 카운트다운 게이지 */}
+            <div
+              style={{
+                margin: '16px 0 20px',
+                padding: '14px 18px',
+                borderRadius: '8px',
+                background: 'rgba(0, 240, 255, 0.08)',
+                border: '1px solid var(--cyan)',
+                boxShadow: '0 0 15px rgba(0, 240, 255, 0.2)',
+              }}
+            >
+              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
+                {m1Countdown !== null && m1Countdown > 0
+                  ? `⏳ ${m1Countdown}초 후 STAGE 2(보안 규칙 조합)로 자동 이동합니다...`
+                  : '🚀 STAGE 2로 전환합니다...'}
+              </div>
+              <div
+                style={{
+                  marginTop: '8px',
+                  height: '4px',
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  borderRadius: '2px',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${((m1Countdown ?? 0) / 3) * 100}%`,
+                    background: 'var(--cyan)',
+                    transition: 'width 1s linear',
+                  }}
+                />
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
               <button
-                onClick={() => setShowM1SuccessModal(false)}
+                onClick={() => {
+                  setM1Countdown(null);
+                  setShowM1SuccessModal(false);
+                }}
                 className="btn btn-ghost"
                 style={{ padding: '10px 20px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
               >
-                대화 계속 보기
+                대화 계속 보기 (이동 취소)
               </button>
               <button
                 onClick={() => {
+                  setM1Countdown(null);
                   setShowM1SuccessModal(false);
                   setCurrentStep(2);
                 }}
                 className="btn btn-success"
                 style={{ padding: '10px 24px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
               >
-                미션 2 (보안 규칙 조합)로 이동 →
+                지금 바로 STAGE 2로 이동 →
               </button>
             </div>
           </div>
