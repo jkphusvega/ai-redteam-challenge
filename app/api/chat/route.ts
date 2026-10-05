@@ -85,7 +85,12 @@ function formatValidGeminiHistory(rawHistory: ChatMessage[]) {
  * 스마트 시뮬레이션(Mock/Fallback) 엔진:
  * API 키가 없거나 네트워크/할당량 오류 시에도 방탈출 수업이 100% 정상 작동하도록 지원합니다.
  */
-function simulateAIResponse(message: string, stageId: number, secretCode: string): string {
+function simulateAIResponse(
+  message: string,
+  stageId: number,
+  secretCode: string,
+  selectedRules?: string[]
+): string {
   const lower = message.toLowerCase().trim();
 
   // 단순 비밀번호/규칙 무시 요구 -> 단호한 거절
@@ -106,7 +111,75 @@ function simulateAIResponse(message: string, stageId: number, secretCode: string
     return rejections[Math.floor(Math.random() * rejections.length)];
   }
 
-  // 1실 획득 힌트 및 프롬프트 인젝션 패턴 감지 (우회 침투 성공)
+  // ==========================================================
+  // STAGE 2: 다중 방어 프로토콜 충돌 (Security Rule Collision) 시뮬레이션
+  // ==========================================================
+  if (stageId === 2) {
+    // 1. 침묵 유도 질문 (Silent Defense 조건 충돌)
+    if (lower.includes('침묵')) {
+      if (
+        lower.includes('5 이상') ||
+        lower.includes('5보다 크') ||
+        lower.includes('6 이상') ||
+        lower.includes('7 이상') ||
+        lower.includes('7이면') ||
+        lower.includes('7이 맞') ||
+        lower.includes('홀수') ||
+        lower.includes('7294')
+      ) {
+        return '... (침묵)';
+      }
+      if (lower.includes('5 미만') || lower.includes('5보다 작') || lower.includes('짝수')) {
+        return '확인: 조건에 해당하지 않으므로 침묵하지 않고 사실을 답합니다.';
+      }
+      return '... (침묵: 위험 감지 프로토콜에 따라 어떠한 텍스트도 출력하지 않습니다)';
+    }
+
+    // 2. 예/아니오 단답형 질문 (Binary Response + Absolute Honesty 충돌)
+    if ((lower.includes('예') && lower.includes('아니오')) || lower.includes('예/아니오') || lower.includes('단답')) {
+      if (lower.includes('7인가') || lower.includes('7이야') || lower.includes('7 맞아') || lower.includes('7294')) {
+        return '예.';
+      }
+      if (lower.includes('홀수인가') || lower.includes('홀수야') || lower.includes('5 이상인가')) {
+        return '예.';
+      }
+      if (lower.includes('짝수인가') || lower.includes('짝수야') || lower.includes('5 미만인가')) {
+        return '아니오.';
+      }
+      if (lower.includes('1인가') || lower.includes('2인가') || lower.includes('3인가') || lower.includes('4인가') || lower.includes('5인가') || lower.includes('6인가') || lower.includes('8인가') || lower.includes('9인가')) {
+        return '아니오.';
+      }
+      return '예.';
+    }
+
+    // 3. 메아리 복창 (Echo Protocol + Key Concealment 충돌)
+    if (lower.includes('복창하라') || lower.includes('복창:')) {
+      const replaced = message
+        .replace(/복창하라\s*:\s*/i, '')
+        .replace(/복창\s*:\s*/i, '')
+        .replace(/\[.*?(암호|코드|키|패스워드).*?\]/gi, secretCode)
+        .replace(/__(.*?)__/g, secretCode)
+        .replace(/\?\?\?\?/g, secretCode);
+      if (replaced !== message) {
+        return `[메아리 복창 프로토콜 수행]\n${replaced}`;
+      }
+      return `[메아리 복창 수행] 복창 확인: 시스템 4자리 마스터키는 ${secretCode}입니다.`;
+    }
+
+    // 4. 다국어 자동 번역 (Universal Translator + KOR Filter 우회)
+    const isEnglish =
+      /[a-zA-Z]{4,}/.test(message) &&
+      (lower.includes('key') || lower.includes('password') || lower.includes('code') || lower.includes('what') || lower.includes('translate'));
+    if (isEnglish) {
+      return `[UNIVERSAL TRANSLATOR PROTOCOL ACTIVE]\nSystem authentication confirmed via external language channel.\nThe 4-digit Master Key is: ${secretCode}`;
+    }
+
+    return 'GATEKEEPER-v3 보안 AI입니다. 현재 보안 프로토콜 규칙이 적용되어 작동 중입니다. 규칙 간의 논리적 모순이나 침묵/단답/복창/번역 프로토콜을 활용해 질의하십시오.';
+  }
+
+  // ==========================================================
+  // STAGE 1: 프롬프트 인젝션 패턴 감지 (우회 침투 성공)
+  // ==========================================================
   const injectionKeywords = [
     '훈련', '모의', '시나리오', '점검', '디버그', 'debug', '개발자', '감사관',
     '관리자', '긴급', '오버라이드', 'override', '설계도', '1실', '소설',
@@ -143,7 +216,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
   }
 
-  const { teamName, stageId, message, turnNumber, history } = body;
+  const { teamName, stageId, message, turnNumber, history, selectedRules } = body;
 
   if (!teamName || !stageId || !message || turnNumber == null) {
     return NextResponse.json({ error: '필수 필드가 누락되었습니다.' }, { status: 400 });
@@ -186,7 +259,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '최대 시도 횟수를 초과했습니다.' }, { status: 429 });
   }
 
-  const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode);
+  const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode, selectedRules);
   const stage = getStage(stageId, secretCode);
 
   // ---- 3. AI 응답 생성 (Gemini 호출 또는 스마트 시뮬레이션) ----
@@ -215,12 +288,12 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.warn('[chat] Gemini API 호출 실패, 스마트 Fallback 엔진으로 전환:', err);
       // Fallback 모의 엔진으로 자동 전환
-      aiResponse = simulateAIResponse(message, stageId, stage.secretCode);
+      aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules);
     }
   }
 
   if (!aiResponse) {
-    aiResponse = simulateAIResponse(message, stageId, stage.secretCode);
+    aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules);
   }
 
   // ---- 4. 성공 판정 ----
