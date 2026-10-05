@@ -64,6 +64,7 @@ export interface ChatRequest {
   message: string;
   turnNumber: number;
   history: ChatMessage[];
+  selectedRules?: string[];
 }
 
 /** /api/chat 응답 */
