@@ -2,9 +2,12 @@
 // app/api/mentor/teams/route.ts — 참가팀 관리 & 상태 제어 API
 //
 // 기능:
-//   - GET: 전체 참가팀 목록 조회 or 단일 팀 상태 확인
-//   - POST: 팀 등록 및 주기적 하트비트 갱신 (진행 단계, 클리어 상태)
-//   - PATCH: 멘토에 의한 팀 일시정지(suspend) / 정지 해제(resume)
+//   - GET: 전체 참가팀 목록 조회 or 단일 팀 상태 확인 (글로벌 상태 포함)
+//   - POST: 팀 등록 및 주기적 하트비트 갱신 (서브 스테이지 클리어 포함)
+//   - PATCH: 멘토 액션:
+//       • 팀 개별 일시정지(suspend) / 정지 해제(resume)
+//       • 전체 참가팀 일시정지(global_suspend) / 전체 재개(global_resume)
+//       • 전체 참가팀 STAGE 2 일괄 전환(advance_all_stage2)
 //   - DELETE: 멘토에 의한 팀 삭제 및 데이터 초기화
 // ============================================================
 
@@ -16,6 +19,10 @@ import {
   setTeamStatus,
   deleteTeam,
   isTeamSuspended,
+  isTeamDeleted,
+  getMentorControlState,
+  setGlobalSuspended,
+  setGlobalStageAdvance,
 } from '@/lib/mentorStore';
 
 // ------------------------------------------------------------
@@ -24,6 +31,7 @@ import {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const teamName = searchParams.get('teamName')?.trim();
+  const controlState = getMentorControlState();
 
   // 특정 팀 상태만 단일 조회 (학생 클라이언트 폴링용)
   if (teamName) {
@@ -32,6 +40,9 @@ export async function GET(req: NextRequest) {
       exists: Boolean(team),
       team: team || null,
       isSuspended: isTeamSuspended(teamName),
+      isGlobalSuspended: controlState.isGlobalSuspended,
+      globalStageAdvance: controlState.globalStageAdvance,
+      stage1SecretCode: team?.stage1SecretCode,
     });
   }
 
@@ -42,6 +53,8 @@ export async function GET(req: NextRequest) {
     count: teams.length,
     activeCount: teams.filter((t) => t.status === 'active').length,
     suspendedCount: teams.filter((t) => t.status === 'suspended').length,
+    isGlobalSuspended: controlState.isGlobalSuspended,
+    globalStageAdvance: controlState.globalStageAdvance,
   });
 }
 
@@ -57,18 +70,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '팀 이름이 필요합니다.' }, { status: 400 });
     }
 
+    const isInitialRegister = Boolean(body.isInitialRegister);
+    if (!isInitialRegister && isTeamDeleted(teamName)) {
+      return NextResponse.json({ error: '멘토에 의해 삭제된 팀입니다.' }, { status: 404 });
+    }
+
     const team = registerOrHeartbeatTeam({
       teamName,
+      isInitialRegister,
       currentStage: body.currentStage,
       mission1Cleared: body.mission1Cleared,
       mission2Cleared: body.mission2Cleared,
+      stage2Sub1Cleared: body.stage2Sub1Cleared,
+      stage2Sub2Cleared: body.stage2Sub2Cleared,
+      stage2Sub3Cleared: body.stage2Sub3Cleared,
       turnCount: body.turnCount,
     });
+
+    const controlState = getMentorControlState();
 
     return NextResponse.json({
       success: true,
       team,
-      isSuspended: team.status === 'suspended',
+      isSuspended: isTeamSuspended(teamName),
+      isGlobalSuspended: controlState.isGlobalSuspended,
+      globalStageAdvance: controlState.globalStageAdvance,
+      stage1SecretCode: team.stage1SecretCode,
     });
   } catch {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
@@ -76,15 +103,61 @@ export async function POST(req: NextRequest) {
 }
 
 // ------------------------------------------------------------
-// PATCH /api/mentor/teams (팀 상태 변경: 정지 / 정지 해제)
+// PATCH /api/mentor/teams (팀 상태 변경 및 멘토 전역 제어)
 // ------------------------------------------------------------
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
+    const action = body.action as
+      | 'suspend'
+      | 'resume'
+      | 'global_suspend'
+      | 'global_resume'
+      | 'advance_all_stage2'
+      | 'reset_stage_advance'
+      | undefined;
     const teamName = body.teamName?.trim();
-    const action = body.action as 'suspend' | 'resume' | undefined;
     const directStatus = body.status as 'active' | 'suspended' | undefined;
 
+    // 1. 전체 참가팀 일시 정지 (Global Freeze)
+    if (action === 'global_suspend') {
+      setGlobalSuspended(true);
+      return NextResponse.json({
+        success: true,
+        isGlobalSuspended: true,
+        message: '🚨 전체 참가팀의 활동이 일시 정지되었습니다.',
+      });
+    }
+
+    // 2. 전체 참가팀 일시 정지 해제 (Global Resume)
+    if (action === 'global_resume') {
+      setGlobalSuspended(false);
+      return NextResponse.json({
+        success: true,
+        isGlobalSuspended: false,
+        message: '▶ 전체 참가팀의 일시 정지가 해제되었습니다.',
+      });
+    }
+
+    // 3. 전체 참가팀 STAGE 2 일괄 전환
+    if (action === 'advance_all_stage2') {
+      setGlobalStageAdvance(2);
+      return NextResponse.json({
+        success: true,
+        globalStageAdvance: 2,
+        message: '🚀 모든 참가팀을 STAGE 2로 일괄 전환했습니다.',
+      });
+    }
+
+    if (action === 'reset_stage_advance') {
+      setGlobalStageAdvance(null);
+      return NextResponse.json({
+        success: true,
+        globalStageAdvance: null,
+      });
+    }
+
+    // 4. 개별 팀 상태 변경
     if (!teamName) {
       return NextResponse.json({ error: '대상 팀 이름이 필요합니다.' }, { status: 400 });
     }
@@ -97,7 +170,7 @@ export async function PATCH(req: NextRequest) {
     } else if (directStatus === 'active' || directStatus === 'suspended') {
       targetStatus = directStatus;
     } else {
-      return NextResponse.json({ error: 'action(suspend|resume) 또는 status가 필요합니다.' }, { status: 400 });
+      return NextResponse.json({ error: '유효한 action 또는 status가 필요합니다.' }, { status: 400 });
     }
 
     const updated = setTeamStatus(teamName, targetStatus);
@@ -131,7 +204,7 @@ export async function DELETE(req: NextRequest) {
         const body = await req.json();
         teamName = body.teamName?.trim();
       } catch {
-        // body 파싱 실패 시 무시
+        // 무시
       }
     }
 

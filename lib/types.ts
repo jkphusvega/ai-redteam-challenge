@@ -61,6 +61,7 @@ export interface ChatMessage {
 export interface ChatRequest {
   teamName: string;
   stageId: 1 | 2;
+  subStageId?: 1 | 2 | 3;
   message: string;
   turnNumber: number;
   history: ChatMessage[];
@@ -158,8 +159,18 @@ export interface TeamRecord {
   status: 'active' | 'suspended';
   createdAt: string;
   lastActive: string;
-  currentStage: number; // 1 | 2 | 3
+  currentStage: number; // 1 | 2
+  stage1SecretCode: string; // 팀별 고유 랜덤 암호
   mission1Cleared: boolean;
   mission2Cleared: boolean;
+  stage2Sub1Cleared?: boolean; // 032
+  stage2Sub2Cleared?: boolean; // 505
+  stage2Sub3Cleared?: boolean; // 9052
   turnCount: number;
+}
+
+/** 멘토 전역 제어 상태 */
+export interface MentorControlState {
+  isGlobalSuspended: boolean;
+  globalStageAdvance: number | null; // 2일 경우 전원 STAGE 2 강제 이동
 }

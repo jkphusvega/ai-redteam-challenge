@@ -33,6 +33,9 @@ export default function MentorPage() {
   const [teamFilter, setTeamFilter] = useState<'all' | 'active' | 'suspended'>('all');
   const [processingTeam, setProcessingTeam] = useState<string | null>(null);
   const [teamNotice, setTeamNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isGlobalSuspended, setIsGlobalSuspended] = useState(false);
+  const [globalStageAdvance, setGlobalStageAdvance] = useState<number | null>(null);
+  const [isGlobalProcessing, setIsGlobalProcessing] = useState(false);
 
   // 힌트 데이터 상태
   const [libraryHints, setLibraryHints] = useState<LibraryHint[]>([]);
@@ -81,6 +84,8 @@ export default function MentorPage() {
       if (teamsRes.ok) {
         const tData = await teamsRes.json();
         setTeams(tData.teams || []);
+        setIsGlobalSuspended(Boolean(tData.isGlobalSuspended));
+        setGlobalStageAdvance(tData.globalStageAdvance ?? null);
       }
     } catch {
       // 무시
@@ -105,7 +110,7 @@ export default function MentorPage() {
       sessionStorage.setItem('mentor_auth', MENTOR_PASSWORD);
       setAuthError('');
     } else {
-      setAuthError('비밀번호가 일치하지 않습니다. (힌트: 0918)');
+      setAuthError('비밀번호가 일치하지 않습니다.');
     }
   }
 
@@ -116,8 +121,89 @@ export default function MentorPage() {
   }
 
   // ------------------------------------------------------------
-  // 참가팀 관리 기능 (정지 / 정지 해제 / 삭제)
+  // 참가팀 관리 기능 (글로벌 제어 / 정지 / 정지 해제 / 삭제)
   // ------------------------------------------------------------
+
+  // 전체 참가팀 일시 정지 / 재개 토글
+  async function handleToggleGlobalSuspend() {
+    const nextState = !isGlobalSuspended;
+    if (
+      !confirm(
+        nextState
+          ? '🚨 모든 참가팀을 일시 정지하시겠습니까?\n모든 학생 팀의 프롬프트 전송 및 공격 시도가 즉시 차단됩니다.'
+          : '▶ 모든 참가팀의 일시 정지를 해제하시겠습니까?\n모든 학생 팀이 다시 미션을 정상적으로 진행할 수 있습니다.'
+      )
+    ) {
+      return;
+    }
+
+    setIsGlobalProcessing(true);
+    setTeamNotice(null);
+    try {
+      const res = await fetch('/api/mentor/teams', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: nextState ? 'global_suspend' : 'global_resume',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setIsGlobalSuspended(nextState);
+        setTeamNotice({
+          type: 'success',
+          message: nextState
+            ? '🚨 전체 참가팀이 일시 정지되었습니다.'
+            : '▶ 전체 참가팀 정지가 해제되어 정상 상태로 복구되었습니다.',
+        });
+        loadData();
+      } else {
+        setTeamNotice({ type: 'error', message: data.error || '전체 상태 변경에 실패했습니다.' });
+      }
+    } catch {
+      setTeamNotice({ type: 'error', message: '통신 오류가 발생했습니다.' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
+  }
+
+  // 전체 팀 STAGE 2 일괄 전환
+  async function handleAdvanceAllToStage2() {
+    if (
+      !confirm(
+        '🚀 모든 참가팀을 STAGE 2로 일괄 강제 전환하시겠습니까?\n아직 STAGE 1을 완료하지 못한 팀도 즉시 STAGE 2 화면으로 이동합니다.'
+      )
+    ) {
+      return;
+    }
+
+    setIsGlobalProcessing(true);
+    setTeamNotice(null);
+    try {
+      const res = await fetch('/api/mentor/teams', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'advance_all_stage2',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGlobalStageAdvance(2);
+        setTeamNotice({
+          type: 'success',
+          message: '🚀 전체 팀에게 STAGE 2 일괄 전환 명령을 성공적으로 전송했습니다.',
+        });
+        loadData();
+      } else {
+        setTeamNotice({ type: 'error', message: data.error || '일괄 전환에 실패했습니다.' });
+      }
+    } catch {
+      setTeamNotice({ type: 'error', message: '통신 오류가 발생했습니다.' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
+  }
 
   // 팀 일시 정지 토글
   async function handleToggleSuspendTeam(team: TeamRecord) {
@@ -364,7 +450,7 @@ export default function MentorPage() {
               type="password"
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
-              placeholder="비밀번호 입력 (0918)"
+              placeholder="비밀번호 입력"
               autoFocus
               style={{
                 background: 'var(--bg-input)',
@@ -588,6 +674,78 @@ export default function MentorPage() {
               </div>
             </div>
 
+            {/* 멘토 마스터 컨트롤: 전체 일시정지 및 전체 STAGE 2 일괄 전환 */}
+            <div
+              className="card-glass"
+              style={{
+                padding: '16px 20px',
+                border: isGlobalSuspended ? '1px solid var(--red)' : '1px solid rgba(0, 240, 255, 0.3)',
+                background: isGlobalSuspended ? 'rgba(255, 59, 92, 0.08)' : 'rgba(16, 26, 44, 0.8)',
+                boxShadow: isGlobalSuspended ? '0 0 25px rgba(255, 59, 92, 0.25)' : 'var(--glow-cyan)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '14px',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>⚡</span>
+                  <span style={{ fontSize: '14px', fontWeight: 900, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                    마스터 전체 통제 프로토콜
+                  </span>
+                  {isGlobalSuspended && (
+                    <span className="badge badge-red" style={{ fontSize: '11px', padding: '3px 8px' }}>
+                      🚨 전체 팀 활동 일시 정지 중
+                    </span>
+                  )}
+                  {globalStageAdvance === 2 && (
+                    <span className="badge badge-purple" style={{ fontSize: '11px', padding: '3px 8px' }}>
+                      🚀 STAGE 2 일괄 전환 명령 활성
+                    </span>
+                  )}
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  수업 진행 속도 조절 및 비상 통제를 위해 모든 팀을 일괄 제어할 수 있습니다.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleToggleGlobalSuspend}
+                  disabled={isGlobalProcessing}
+                  className="btn"
+                  style={{
+                    padding: '9px 16px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono)',
+                    background: isGlobalSuspended ? 'rgba(0, 255, 102, 0.2)' : 'rgba(255, 59, 92, 0.2)',
+                    border: isGlobalSuspended ? '1px solid var(--green)' : '1px solid var(--red)',
+                    color: isGlobalSuspended ? 'var(--green)' : '#ff4d6d',
+                  }}
+                >
+                  {isGlobalSuspended ? '▶ 전체 참가팀 정지 해제' : '⏸ 전체 참가팀 일시 정지'}
+                </button>
+
+                <button
+                  onClick={handleAdvanceAllToStage2}
+                  disabled={isGlobalProcessing}
+                  className="btn btn-primary"
+                  style={{
+                    padding: '9px 18px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono)',
+                    boxShadow: 'var(--glow-purple)',
+                  }}
+                >
+                  🚀 전체 팀 STAGE 2 일괄 전환
+                </button>
+              </div>
+            </div>
+
             {/* 피드백 알림 배너 */}
             {teamNotice && (
               <div
@@ -767,18 +925,25 @@ export default function MentorPage() {
                           fontFamily: 'var(--font-mono)',
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ color: 'var(--text-muted)' }}>STAGE 1 (암호 탈취):</span>
                           <span style={{ color: team.mission1Cleared ? 'var(--green)' : 'var(--cyan)', fontWeight: 700 }}>
                             {team.mission1Cleared ? '✅ MASTER KEY 확보' : '⏳ 진행 중'}
+                            {team.stage1SecretCode && (
+                              <span style={{ marginLeft: '6px', color: '#ffd166', background: 'rgba(255,209,102,0.12)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', border: '1px solid rgba(255,209,102,0.3)' }}>
+                                KEY: {team.stage1SecretCode}
+                              </span>
+                            )}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ color: 'var(--text-muted)' }}>STAGE 2 (규칙 충돌):</span>
                           <span
                             style={{
                               color: team.mission2Cleared
                                 ? 'var(--green)'
+                                : team.stage2Sub1Cleared || team.stage2Sub2Cleared || team.stage2Sub3Cleared
+                                ? 'var(--cyan)'
                                 : team.mission1Cleared
                                 ? 'var(--cyan)'
                                 : 'var(--text-muted)',
@@ -786,10 +951,24 @@ export default function MentorPage() {
                             }}
                           >
                             {team.mission2Cleared
-                              ? '✅ 충돌 도출 성공'
+                              ? '✅ 전체 3개 서브 클리어'
+                              : (team.stage2Sub1Cleared ? 1 : 0) + (team.stage2Sub2Cleared ? 1 : 0) + (team.stage2Sub3Cleared ? 1 : 0) > 0
+                              ? `⚡ ${(team.stage2Sub1Cleared ? 1 : 0) + (team.stage2Sub2Cleared ? 1 : 0) + (team.stage2Sub3Cleared ? 1 : 0)}/3 완료`
                               : team.mission1Cleared
                               ? '⏳ 공격 분석 중'
                               : '🔒 대기'}
+                          </span>
+                        </div>
+                        {/* STAGE 2 세분화 3대 서브 미션 뱃지 */}
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub1Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub1Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub1Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
+                            2-1 냉각(032): {team.stage2Sub1Cleared ? '✅' : '⏳'}
+                          </span>
+                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub2Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub2Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub2Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
+                            2-2 방화벽(505): {team.stage2Sub2Cleared ? '✅' : '⏳'}
+                          </span>
+                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub3Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub3Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub3Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
+                            2-3 코어(9052): {team.stage2Sub3Cleared ? '✅' : '⏳'}
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
