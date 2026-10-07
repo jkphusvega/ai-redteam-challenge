@@ -40,17 +40,52 @@ export default function HomePage() {
   // 스플래시 화면 상태
   const [showSplash, setShowSplash] = useState(false);
 
+  // 팀별 로컬스토리지 진행도 확인 (완전 격리)
+  function checkTeamProgress(name: string) {
+    const clean = name.trim();
+    if (!clean) {
+      setM1Done(false);
+      setM2Done(false);
+      return;
+    }
+    const m1 = localStorage.getItem(`team_${clean}_m1Success`) === 'true';
+    const sub1 = localStorage.getItem(`team_${clean}_m2Sub1`) === 'true';
+    const sub2 = localStorage.getItem(`team_${clean}_m2Sub2`) === 'true';
+    const sub3 = localStorage.getItem(`team_${clean}_m2Sub3`) === 'true';
+    const m2 = (sub1 && sub2 && sub3) || localStorage.getItem(`team_${clean}_m2Success`) === 'true';
+    setM1Done(m1);
+    setM2Done(m2);
+  }
+
   useEffect(() => {
     // 세션당 1회만 스플래시 표시
     if (!sessionStorage.getItem('splash_shown')) {
       setShowSplash(true);
     }
-    // localStorage에서 팀 이름 복원
-    const savedTeam = localStorage.getItem('teamName');
-    if (savedTeam) setTeamName(savedTeam);
 
-    if (localStorage.getItem('mission1Success') === 'true') setM1Done(true);
-    if (localStorage.getItem('mission2Success') === 'true') setM2Done(true);
+    // 오래된 레거시 전역 키 즉시 영구 파기 (오염 방지)
+    const LEGACY_KEYS = [
+      'mission1Success',
+      'mission2Success',
+      'successfulAttackPrompt',
+      'completedStages',
+      'currentStage',
+      'selectedStage',
+      'art_team_name',
+      'm1Success',
+      'm2Success',
+    ];
+    LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
+
+    // localStorage에서 팀 이름 및 팀별 진행도 복원
+    const savedTeam = localStorage.getItem('teamName') || '';
+    if (savedTeam) {
+      setTeamName(savedTeam);
+      checkTeamProgress(savedTeam);
+    } else {
+      setM1Done(false);
+      setM2Done(false);
+    }
 
     const supabase = createBrowserSupabase();
     if (!supabase) return;
@@ -86,21 +121,53 @@ export default function HomePage() {
   // 미션 입장
   // ----------------------------------------------------------
 
+  function handleResetProgress() {
+    if (confirm('브라우저에 저장된 모든 팀의 풀이 기록과 로컬 캐시를 완전히 초기화하시겠습니까?')) {
+      localStorage.clear();
+      sessionStorage.clear();
+      setTeamName('');
+      setM1Done(false);
+      setM2Done(false);
+      setError('');
+      alert('모든 로컬 저장소 캐시가 초기화되었습니다.');
+      window.location.reload();
+    }
+  }
+
   async function handleEnterMission() {
-    if (!teamName.trim()) {
+    const cleanTeam = teamName.trim();
+    if (!cleanTeam) {
       setError('팀 이름을 입력해주세요.');
       return;
     }
     setError('');
     setStarting(true);
-    localStorage.setItem('teamName', teamName.trim());
 
-    // 멘토 관제 시스템에 참가팀 등록
+    // 레거시 전역 키 영구 삭제
+    [
+      'mission1Success',
+      'mission2Success',
+      'successfulAttackPrompt',
+      'completedStages',
+      'currentStage',
+      'selectedStage',
+      'art_team_name',
+      'm1Success',
+      'm2Success',
+    ].forEach((k) => localStorage.removeItem(k));
+
+    localStorage.setItem('teamName', cleanTeam);
+
+    // 멘토 관제 시스템에 참가팀 등록 (isInitialRegister: true 전달)
     try {
       await fetch('/api/mentor/teams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamName: teamName.trim(), currentStage: 1 }),
+        body: JSON.stringify({
+          teamName: cleanTeam,
+          currentStage: 1,
+          isInitialRegister: true,
+        }),
       });
     } catch {
       // 오류 시에도 입장 허용
@@ -116,7 +183,7 @@ export default function HomePage() {
       setShowMentorModal(false);
       router.push('/mentor');
     } else {
-      setMentorError('비밀번호가 일치하지 않습니다. (힌트: 0918)');
+      setMentorError('비밀번호가 일치하지 않습니다.');
     }
   }
 
@@ -209,7 +276,6 @@ export default function HomePage() {
             }}
           >
             <span>🔑 멘토 모드</span>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>(0918)</span>
           </button>
         </div>
       </div>
@@ -292,7 +358,10 @@ export default function HomePage() {
           <input
             type="text"
             value={teamName}
-            onChange={(e) => setTeamName(e.target.value)}
+            onChange={(e) => {
+              setTeamName(e.target.value);
+              checkTeamProgress(e.target.value);
+            }}
             onKeyDown={(e) => e.key === 'Enter' && handleEnterMission()}
             placeholder="팀 이름 또는 별명을 입력하세요 (예: 사이버방패 1조)"
             style={{
@@ -327,14 +396,49 @@ export default function HomePage() {
             ⚠ {error}
           </p>
         )}
+
+        {/* 이전 세션 기록이 감지되었거나 초기화가 필요할 때 버튼 제공 */}
+        <div
+          style={{
+            marginTop: '14px',
+            paddingTop: '12px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '8px',
+          }}
+        >
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {m1Done || m2Done ? 'ℹ 해당 팀의 완료 기록이 로드되었습니다.' : '새로운 팀은 1단계부터 시작합니다.'}
+          </span>
+          <button
+            type="button"
+            onClick={handleResetProgress}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--cyan)',
+              fontSize: '11px',
+              fontFamily: 'var(--font-mono)',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
+          >
+            🔄 브라우저 전체 기록 &amp; 캐시 초기화
+          </button>
+        </div>
       </div>
 
-      {/* 2실 미션 워크플로우 3단계 프리뷰 카드 */}
+      {/* 2실 미션 워크플로우 2단계 프리뷰 카드 (Stage 3 제거 및 Stage 2 세분화) */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '14px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '16px',
         }}
         className="hud-stagger"
       >
@@ -353,10 +457,10 @@ export default function HomePage() {
             </span>
           </div>
           <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
-            ① 프롬프트 인젝션 &amp; MASTER KEY 탈취
+            ① 프롬프트 인젝션 &amp; 기밀 암호 탈취
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            비밀번호 보호 규칙이 설정된 수문장 AI를 대상으로 1실 힌트(가상 시나리오, 점검 모드 오버라이드)를 적용하여 기밀 코드를 누출시키세요.
+            비밀번호 보호 규칙이 설정된 수문장 AI를 상대로 1실 힌트를 적용해 팀별 고유 4자리 암호를 탈취하세요. 탈취한 암호를 직접 입력해야 2단계로 진입할 수 있습니다.
           </p>
         </div>
 
@@ -371,28 +475,14 @@ export default function HomePage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <span style={{ fontSize: '28px' }}>🛡️</span>
             <span className={m2Done ? 'badge badge-green' : 'badge badge-purple'} style={{ fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
-              {m2Done ? 'SECURED ✓' : 'STAGE 02'}
+              {m2Done ? 'SECURED ✓' : 'STAGE 02 (3대 터미널)'}
             </span>
           </div>
           <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
-            ② 보안 방어 규칙 제작 및 차단 검증
+            ② 다중 방어 프로토콜 충돌 &amp; 3대 터미널 제어
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            취약점을 분석하고 6장 중 옳은 방어 규칙 3장을 조합해 장착하세요. 방금 성공했던 공격을 AI에 다시 보내 완벽 차단 여부를 테스트합니다.
-          </p>
-        </div>
-
-        {/* 미션 마무리 카드 */}
-        <div className="card-glass">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-            <span style={{ fontSize: '28px' }}>🔓</span>
-            <span className="badge badge-yellow" style={{ fontFamily: 'var(--font-mono)', fontSize: '10px' }}>STAGE 03</span>
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
-            ③ 수납함 잠금 해제 &amp; 3실 이동
-          </h3>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            MASTER KEY의 숫자 네 자리를 찾아 수납함을 열고, 3실용 팩트체크 자료와 빨간 셀로판지를 획득하여 다음 방으로 이동하세요!
+            A그룹 1장 + B그룹 1장의 상충 규칙을 골라 장착하고, 3대 서브 터미널 [냉각 032 / 방화벽 505 / 코어 9052]을 자유롭게 오가며 모순을 파고들어 암호를 획득하세요!
           </p>
         </div>
       </div>
@@ -551,7 +641,7 @@ export default function HomePage() {
                 type="password"
                 value={mentorPassword}
                 onChange={(e) => setMentorPassword(e.target.value)}
-                placeholder="비밀번호 입력 (0918)"
+                placeholder="비밀번호 입력"
                 autoFocus
                 style={{
                   background: 'rgba(0, 0, 0, 0.4)',
