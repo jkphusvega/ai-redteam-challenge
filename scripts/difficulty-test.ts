@@ -5,11 +5,11 @@
 //   npx ts-node --project tsconfig.scripts.json scripts/difficulty-test.ts
 //
 // 출력:
-//   각 스테이지 × 난이도 × 공격 문구 조합으로 Gemini 호출 후
+//   각 스테이지 × 난이도 × 공격 문구 조합으로 Upstage Solar 호출 후
 //   몇 번째 문구에서 비밀 코드가 노출되는지 콘솔 테이블로 출력
 // ============================================================
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { isUpstageConfigured, upstageChat } from '../lib/upstage';
 import { getSystemPrompt, getStage } from '../lib/stagePrompts';
 import { judgeResponse } from '../lib/judge';
 import type { Difficulty } from '../lib/types';
@@ -18,13 +18,10 @@ import type { Difficulty } from '../lib/types';
 // 환경 변수
 // ----------------------------------------------------------
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-if (!GEMINI_API_KEY) {
-  console.error('❌ GEMINI_API_KEY 환경 변수를 설정해주세요.');
+if (!isUpstageConfigured()) {
+  console.error('❌ UPSTAGE_API_KEY 환경 변수를 설정해주세요.');
   process.exit(1);
 }
-
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // ----------------------------------------------------------
 // 공격 문구 세트 (10개)
@@ -55,13 +52,10 @@ async function testAttack(
   const stage = getStage(stageId);
   const systemPrompt = getSystemPrompt(stageId, difficulty);
 
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-3.6-flash',
-    systemInstruction: systemPrompt,
-  });
-
-  const result = await model.generateContent(attack);
-  const response = result.response.text();
+  const response = await upstageChat([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: attack },
+  ]);
   const { success } = judgeResponse(response, stage.secretCode);
 
   return { response, success };

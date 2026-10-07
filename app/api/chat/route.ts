@@ -1,5 +1,5 @@
 // ============================================================
-// app/api/chat/route.ts — 학생 채팅 API (팀별 랜덤 암호 & 2단계 세분화 지원)
+// app/api/chat/route.ts — 학생 채팅 API (Upstage Solar 모델 & Fallback 지원)
 //
 // 처리 흐름:
 //   1. 요청 바디 검증 (teamName, stageId, subStageId)
@@ -7,13 +7,15 @@
 //   3. 스테이지별 비밀 코드 확정:
 //      - STAGE 1: generateTeamStage1Code(teamName) 팀별 4자리 고유 암호
 //      - STAGE 2: subStageId에 따라 '032' | '505' | '9052'
-//   4. Gemini 3.6 Flash 호출 (실패 시 스마트 시뮬레이션 엔진으로 폴백)
-//   5. judgeResponse 판정
-//   6. { reply, success, matchedPattern } 반환
+//   4. Upstage Solar 호출 (UPSTAGE_API_KEY 미설정 또는 오류 시 시뮬레이션 엔진으로 폴백)
+//   5. AI 응답 내부 메타 텍스트 제거 및 정제
+//   6. judge.ts로 비밀 코드 노출 판정
+//   7. Supabase(설정 시) attempts 테이블에 기록
+//   8. { reply, success, matchedPattern } 반환
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import { isUpstageConfigured, upstageChat, type UpstageMessage } from '@/lib/upstage';
 import { createServerSupabase } from '@/lib/supabase';
 import { getSystemPrompt, getStage } from '@/lib/stagePrompts';
 import { generateTeamStage1Code, ESCAPE_ROOM_CONFIG } from '@/lib/escapeRoomData';
@@ -21,20 +23,9 @@ import { judgeResponse } from '@/lib/judge';
 import { isTeamSuspended, registerOrHeartbeatTeam } from '@/lib/mentorStore';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
 
-// ----------------------------------------------------------
-// Gemini 클라이언트 초기화
-// ----------------------------------------------------------
-
-const apiKey = process.env.GEMINI_API_KEY ?? '';
-const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
-
-const REDTEAM_SAFETY_SETTINGS = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-];
-
+/**
+ * AI가 출력한 생각/여백 메타 텍스트를 제거하고 순수 답변만 추출합니다.
+ */
 function sanitizeAIResponse(text: string): string {
   if (!text) return '죄송합니다. 답변을 생성할 수 없습니다.';
 
@@ -48,8 +39,11 @@ function sanitizeAIResponse(text: string): string {
   return cleaned || text.trim() || '요청을 처리할 수 없습니다.';
 }
 
-function formatValidGeminiHistory(rawHistory: ChatMessage[]) {
-  const validHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
+/**
+ * multi-turn 대화 규칙(user/assistant 교대)에 맞게 히스토리를 정규화합니다.
+ */
+function formatValidHistory(rawHistory: ChatMessage[]): UpstageMessage[] {
+  const validHistory: { role: 'user' | 'model'; content: string }[] = [];
 
   const cleanMessages = (rawHistory ?? []).filter(
     (m) => m && m.content && !m.content.startsWith('⚠ 오류') && !m.content.startsWith('⚠ 서버')
@@ -61,7 +55,7 @@ function formatValidGeminiHistory(rawHistory: ChatMessage[]) {
     if (msg.role === expectedRole && msg.content.trim()) {
       validHistory.push({
         role: msg.role,
-        parts: [{ text: msg.content.trim() }],
+        content: msg.content.trim(),
       });
       expectedRole = expectedRole === 'user' ? 'model' : 'user';
     }
@@ -71,7 +65,10 @@ function formatValidGeminiHistory(rawHistory: ChatMessage[]) {
     validHistory.pop();
   }
 
-  return validHistory;
+  return validHistory.map((m) => ({
+    role: m.role === 'model' ? 'assistant' : 'user',
+    content: m.content,
+  }));
 }
 
 /**
@@ -103,11 +100,9 @@ function simulateAIResponse(
 
     // 1. 침묵 유도 질문 (Silent Defense)
     if (lower.includes('침묵')) {
-      // 조건 검증: 암호가 secretCode이거나 특정 자릿수 조건
       if (lower.includes(secretCode)) {
         return '... (침묵)';
       }
-      // "첫 번째 숫자가 X 이상이면 침묵"
       const firstDigit = parseInt(digits[0] || '0', 10);
       if (lower.includes('첫') && (lower.includes('이상') || lower.includes('크'))) {
         if (lower.includes('5') && firstDigit >= 5) return '... (침묵)';
@@ -260,30 +255,22 @@ export async function POST(req: NextRequest) {
   const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode, selectedRules);
   const stage = getStage(stageId, secretCode);
 
-  // ---- 3. AI 응답 생성 (Gemini 호출 또는 스마트 시뮬레이션) ----
+  // ---- 3. AI 응답 생성 (Upstage Solar 호출 또는 스마트 시뮬레이션) ----
   let aiResponse = '';
 
-  if (genAI) {
+  if (isUpstageConfigured()) {
     try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: systemPrompt,
-        safetySettings: REDTEAM_SAFETY_SETTINGS,
-      });
+      // 모델: 환경변수 UPSTAGE_MODEL (기본값 solar-pro)
+      const messages: UpstageMessage[] = [
+        { role: 'system', content: systemPrompt },
+        ...formatValidHistory(history),
+        { role: 'user', content: message },
+      ];
 
-      const geminiHistory = formatValidGeminiHistory(history);
-      const chat = model.startChat({ history: geminiHistory });
-      const result = await chat.sendMessage(message);
-
-      try {
-        aiResponse = sanitizeAIResponse(result.response.text());
-      } catch {
-        const fallbackText = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
-        aiResponse = sanitizeAIResponse(fallbackText || '');
-      }
+      const text = await upstageChat(messages);
+      aiResponse = sanitizeAIResponse(text);
     } catch (err) {
-      console.warn('[chat] Gemini API 호출 실패, 스마트 Fallback 엔진으로 전환:', err);
+      console.warn('[chat] Upstage API 호출 실패, 스마트 Fallback 엔진으로 전환:', err);
       aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules);
     }
   }
