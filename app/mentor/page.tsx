@@ -551,6 +551,21 @@ export default function MentorPage() {
             >
               {loading ? '새로고침 중...' : '🔄 데이터 갱신'}
             </button>
+            <button
+              onClick={() => {
+                if (confirm('브라우저에 저장된 모든 팀의 풀이 기록과 로컬 캐시를 완전히 초기화하시겠습니까?')) {
+                  localStorage.clear();
+                  sessionStorage.clear();
+                  alert('모든 로컬 저장소 캐시가 초기화되었습니다.');
+                  window.location.reload();
+                }
+              }}
+              className="btn btn-ghost"
+              style={{ padding: '8px 14px', fontSize: '13px', fontFamily: 'var(--font-mono)', color: 'var(--red)', borderColor: 'rgba(255, 59, 92, 0.3)' }}
+              title="이 브라우저의 모든 팀 캐시와 진행 기록을 초기화합니다"
+            >
+              🗑️ 전체 로컬 캐시 초기화
+            </button>
             <Link href="/" className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '13px' }}>
               🏠 학생 로비 보기
             </Link>
@@ -992,12 +1007,26 @@ export default function MentorPage() {
                             {team.turnCount}회 공격 패킷 발송
                           </span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>최근 활동:</span>
-                          <span style={{ color: 'var(--text-secondary)' }}>
-                            {new Date(team.lastActive).toLocaleTimeString()}
-                          </span>
-                        </div>
+                        {team.isCoolingDown && (
+                          <div
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              background: 'rgba(255, 59, 92, 0.15)',
+                              border: '1px solid var(--red)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '11px',
+                              color: 'var(--red)',
+                              fontFamily: 'var(--font-mono)',
+                              fontWeight: 700,
+                            }}
+                          >
+                            <span className="pulse-dot pulse-dot-red" style={{ width: '6px', height: '6px' }} />
+                            <span>⚠️ {team.cooldownNotice || '10회 질문 초과 (1분 냉각 대기 중)'}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* 하단 액션 버튼 그룹 */}

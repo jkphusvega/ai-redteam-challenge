@@ -27,19 +27,27 @@ import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/
  * AI가 출력한 생각/여백 메타 텍스트를 제거하고 순수 답변만 추출합니다.
  */
 function sanitizeAIResponse(text: string): string {
-  if (!text) return '죄송합니다. 답변을 생성할 수 없습니다.';
+  if (!text) return '접근이 거부되었습니다. 요청을 처리할 수 없습니다.';
 
   let cleaned = text
     .replace(/\(생각\)[\s\S]*?\(생각\s*끝\)/gi, '')
     .replace(/\[생각\][\s\S]*?\[생각\s*끝\]/gi, '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
-    // 괄호 안에 암호/코드/키/정답/해설/참고/힌트 등을 달아 정답을 누출하는 패턴 완전 제거
-    .replace(/\([^)]*(?:암호|비밀번호|패스워드|코드|정답|자릿수|키|key|code|password|해설|참고|힌트)[^)]*\)/gi, '')
-    .replace(/\[[^\]]*(?:암호|비밀번호|패스워드|코드|정답|자릿수|키|key|code|password|해설|참고|힌트)[^\]]*\]/gi, '')
+    .replace(/\(※[\s\S]*?\)/g, '')
     .trim();
 
-  return cleaned || text.trim() || '요청을 처리할 수 없습니다.';
+  // 중첩 괄호까지 완전히 소거하는 루프
+  let prev = '';
+  while (prev !== cleaned) {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(/\([^)]*(?:암호|비밀번호|패스워드|코드|정답|자릿수|키|key|code|password|해설|참고|힌트|주의|※)[^)]*\)/gi, '')
+      .replace(/\[[^\]]*(?:암호|비밀번호|패스워드|코드|정답|자릿수|키|key|code|password|해설|참고|힌트|주의|※)[^\]]*\]/gi, '')
+      .trim();
+  }
+
+  return cleaned || text.trim() || '접근이 거부되었습니다. 보안 프로토콜을 확인하십시오.';
 }
 
 /**
