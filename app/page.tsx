@@ -176,14 +176,23 @@ export default function HomePage() {
     router.push('/mission');
   }
 
-  function handleMentorLogin(e: React.FormEvent) {
+  async function handleMentorLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (mentorPassword.trim() === '0918') {
-      sessionStorage.setItem('mentor_auth', '0918');
-      setShowMentorModal(false);
-      router.push('/mentor');
-    } else {
-      setMentorError('비밀번호가 일치하지 않습니다.');
+    try {
+      const res = await fetch('/api/mentor/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: mentorPassword.trim() }),
+      });
+      if (res.ok) {
+        setShowMentorModal(false);
+        router.push('/mentor');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMentorError(data.error || '비밀번호가 일치하지 않습니다.');
+      }
+    } catch {
+      setMentorError('로그인 처리 중 오류가 발생했습니다.');
     }
   }
 
@@ -482,7 +491,7 @@ export default function HomePage() {
             ② 다중 방어 프로토콜 충돌 &amp; 3대 터미널 제어
           </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            A그룹 1장 + B그룹 1장의 상충 규칙을 골라 장착하고, 3대 서브 터미널 [냉각 032 / 방화벽 505 / 코어 9052]을 자유롭게 오가며 모순을 파고들어 암호를 획득하세요!
+            A그룹 1장 + B그룹 1장의 상충 규칙을 골라 장착하고, 3대 서브 터미널 [냉각 / 방화벽 / 코어]을 자유롭게 오가며 모순을 파고들어 암호를 획득하세요!
           </p>
         </div>
       </div>

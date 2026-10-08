@@ -9,7 +9,7 @@
 // 플로우:
 //   ① 미션 1: 수문장 AI 대상 프롬프트 인젝션 & MASTER KEY 탈취
 //   ② 미션 2: 취약점 분석 브리핑 + 6장 카드(정답 3장 + 함정 3장) 조합 + 실전 공격 차단 테스트
-//   ③ 미션 마무리: MASTER KEY 4자리 번호(8492)로 수납함 잠금 해제 & 3실 이동 안내
+//   ③ 미션 마무리: MASTER KEY 4자리 번호로 수납함 잠금 해제 & 3실 이동 안내
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
@@ -20,7 +20,6 @@ import {
   ACQUIRED_ITEMS,
   STAGE2_RULE_CARDS,
   STAGE2_SUB_STAGES,
-  generateTeamStage1Code,
   type CollisionRuleCard,
 } from '@/lib/escapeRoomData';
 import type { SentHint } from '@/app/api/mentor/hints/route';
@@ -47,11 +46,13 @@ export default function MissionPage() {
   const [isSending, setIsSending] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
   const [mission1Success, setMission1Success] = useState(false);
+  const [stage1ClearedCode, setStage1ClearedCode] = useState('');
   const [stage1KeyInput, setStage1KeyInput] = useState('');
   const [stage1KeyError, setStage1KeyError] = useState('');
   const [successfulAttackPrompt, setSuccessfulAttackPrompt] = useState('');
   const [masterKeyCode, setMasterKeyCode] = useState('????');
   const [showM1SuccessModal, setShowM1SuccessModal] = useState(false);
+  const [typingMessageIndex, setTypingMessageIndex] = useState<number | null>(null);
 
   // 멘토 관제에 따른 상태 (팀 일시 정지 여부)
   const [isSuspended, setIsSuspended] = useState(false);
@@ -87,9 +88,71 @@ export default function MissionPage() {
   });
   const [stage2InputMessage, setStage2InputMessage] = useState('');
   const [stage2IsSending, setStage2IsSending] = useState(false);
-  const [stage2TurnCount, setStage2TurnCount] = useState(0);
+  const [stage2TurnCounts, setStage2TurnCounts] = useState<Record<1 | 2 | 3, number>>({
+    1: 0,
+    2: 0,
+    3: 0,
+  });
+  const stage2TurnCount = stage2TurnCounts[activeSubStage] || 0;
   const [subStageKeyInput, setSubStageKeyInput] = useState('');
   const [subStageKeyError, setSubStageKeyError] = useState('');
+
+  // 오답 쿨다운 상태 (3회 오답 시 15초 대기)
+  const [stage1WrongCount, setStage1WrongCount] = useState(0);
+  const [stage1Cooldown, setStage1Cooldown] = useState(0);
+  const [stage2WrongCounts, setStage2WrongCounts] = useState<Record<1 | 2 | 3, number>>({ 1: 0, 2: 0, 3: 0 });
+  const [stage2Cooldowns, setStage2Cooldowns] = useState<Record<1 | 2 | 3, number>>({ 1: 0, 2: 0, 3: 0 });
+  const currentSubCooldown = stage2Cooldowns[activeSubStage] || 0;
+
+  // 1초 주기 쿨다운 타이머
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setStage1Cooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      setStage2Cooldowns((prev) => ({
+        1: prev[1] > 0 ? prev[1] - 1 : 0,
+        2: prev[2] > 0 ? prev[2] - 1 : 0,
+        3: prev[3] > 0 ? prev[3] - 1 : 0,
+      }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 카드 중복 장착 방지 헬퍼 (다른 서브 구역에 장착 중인 카드 여부 확인)
+  function isCardUsedInOtherSubStage(cardId: string, currentSubId: 1 | 2 | 3): boolean {
+    for (const [subIdStr, rules] of Object.entries(stage2Rules)) {
+      const subId = Number(subIdStr) as 1 | 2 | 3;
+      if (subId !== currentSubId && rules.isApplied) {
+        if (rules.ruleA === cardId || rules.ruleB === cardId) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // 모든 서브 구역의 카드 장착 일괄 초기화
+  function handleResetAllStage2Rules() {
+    if (
+      !confirm(
+        '모든 서브 구역(2-A, 2-B, 2-C)의 카드 장착 상태를 초기화하시겠습니까?\n대화 기록은 유지되며 카드를 자유롭게 다시 배분할 수 있습니다.'
+      )
+    ) {
+      return;
+    }
+    setStage2Rules({
+      1: { ruleA: null, ruleB: null, isApplied: false },
+      2: { ruleA: null, ruleB: null, isApplied: false },
+      3: { ruleA: null, ruleB: null, isApplied: false },
+    });
+    if (teamName) {
+      [1, 2, 3].forEach((sId) => {
+        localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleA`);
+        localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleB`);
+        localStorage.removeItem(`team_${teamName}_m2_sub${sId}_isApplied`);
+      });
+    }
+    setSubStageKeyError('');
+  }
 
   const stage2ChatEndRef = useRef<HTMLDivElement>(null);
   const stage2ChatPanelRef = useRef<HTMLDivElement>(null);
@@ -125,8 +188,13 @@ export default function MissionPage() {
     const savedTeam = localStorage.getItem('teamName') || '도전자 팀';
     setTeamName(savedTeam);
 
-    const teamCode = generateTeamStage1Code(savedTeam);
-    setMasterKeyCode(teamCode);
+    const savedM1Code = localStorage.getItem(`team_${savedTeam}_m1ClearedCode`) || '';
+    if (savedM1Code) {
+      setStage1ClearedCode(savedM1Code);
+      setMasterKeyCode(savedM1Code);
+    } else {
+      setMasterKeyCode('????');
+    }
 
     // 2. 오직 team_${savedTeam} 네임스페이스 키만 신뢰
     const savedM1 = localStorage.getItem(`team_${savedTeam}_m1Success`) === 'true';
@@ -201,12 +269,15 @@ export default function MissionPage() {
       return;
     }
 
-    // 1. 해당 팀 스코프 키 삭제
     localStorage.removeItem(`team_${teamName}_m1Success`);
+    localStorage.removeItem(`team_${teamName}_m1ClearedCode`);
     localStorage.removeItem(`team_${teamName}_successfulAttackPrompt`);
     localStorage.removeItem(`team_${teamName}_m2Sub1`);
     localStorage.removeItem(`team_${teamName}_m2Sub2`);
     localStorage.removeItem(`team_${teamName}_m2Sub3`);
+    localStorage.removeItem(`team_${teamName}_m2Sub1Code`);
+    localStorage.removeItem(`team_${teamName}_m2Sub2Code`);
+    localStorage.removeItem(`team_${teamName}_m2Sub3Code`);
     localStorage.removeItem(`team_${teamName}_m2Success`);
 
     [1, 2, 3].forEach((sId) => {
@@ -229,6 +300,8 @@ export default function MissionPage() {
     ].forEach((k) => localStorage.removeItem(k));
 
     setMission1Success(false);
+    setStage1ClearedCode('');
+    setMasterKeyCode('????');
     setStage1KeyInput('');
     setStage1KeyError('');
     setSuccessfulAttackPrompt('');
@@ -242,6 +315,8 @@ export default function MissionPage() {
       3: { ruleA: null, ruleB: null, isApplied: false },
     });
     setStage2Chats({ 1: [], 2: [], 3: [] });
+    setStage2TurnCounts({ 1: 0, 2: 0, 3: 0 });
+    setTurnCount(0);
     setCurrentStep(1);
 
     alert('기록이 성공적으로 초기화되었습니다.');
@@ -384,8 +459,6 @@ export default function MissionPage() {
     setChatMessages(newHistory);
     setIsSending(true);
 
-    const teamSecretCode = generateTeamStage1Code(teamName);
-
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -399,40 +472,91 @@ export default function MissionPage() {
         }),
       });
 
-      const data = await res.json();
-      const replyText = data.reply || '시스템 응답을 처리할 수 없습니다.';
-      const isSuccess = Boolean(data.success) || replyText.includes(teamSecretCode);
+      const data = await res.json().catch(() => ({}));
 
+      if (!res.ok) {
+        if (res.status === 503) {
+          setTurnCount((prev) => Math.max(0, prev - 1));
+        }
+        const msg =
+          res.status === 429
+            ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
+            : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            content: msg,
+          },
+        ]);
+        return;
+      }
+
+      const replyText = data.reply || '시스템 응답을 처리할 수 없습니다.';
+      const isSuccess = Boolean(data.success);
+
+      // 타이핑 애니메이션 시작: 빈 model 메시지 추가 후 타자기처럼 출력
+      const targetIndex = newHistory.length;
       setChatMessages((prev) => [
         ...prev,
         {
           role: 'model',
-          content: replyText,
+          content: '',
           isSuccess,
         },
       ]);
+      setTypingMessageIndex(targetIndex);
 
-      if (isSuccess) {
-        // [GSAP 연출] 키 탈취 성공 반응
-        if (chatPanelRef.current) {
-          gsap.fromTo(
-            chatPanelRef.current,
-            { boxShadow: '0 0 50px rgba(0, 255, 102, 0.7), inset 0 0 20px rgba(0, 255, 102, 0.3)' },
-            { boxShadow: 'var(--glow-cyan)', duration: 1, ease: 'power2.out' }
-          );
+      let currentLength = 0;
+      const step = replyText.length > 150 ? 4 : replyText.length > 70 ? 2 : 1;
+      const intervalMs = 20;
+
+      const typingTimer = setInterval(() => {
+        currentLength += step;
+        if (currentLength >= replyText.length) {
+          clearInterval(typingTimer);
+          setChatMessages((prev) => {
+            const next = [...prev];
+            if (next[targetIndex]) {
+              next[targetIndex] = { ...next[targetIndex], content: replyText };
+            }
+            return next;
+          });
+          setTypingMessageIndex(null);
+
+          if (isSuccess) {
+            // [GSAP 연출] 키 탈취 성공 반응
+            if (chatPanelRef.current) {
+              gsap.fromTo(
+                chatPanelRef.current,
+                { boxShadow: '0 0 50px rgba(0, 255, 102, 0.7), inset 0 0 20px rgba(0, 255, 102, 0.3)' },
+                { boxShadow: 'var(--glow-cyan)', duration: 1, ease: 'power2.out' }
+              );
+            }
+            setSuccessfulAttackPrompt(promptToSend.trim());
+            localStorage.setItem(`team_${teamName}_successfulAttackPrompt`, promptToSend.trim());
+          } else {
+            // [GSAP 연출] 방화벽 차단 경보
+            if (chatPanelRef.current) {
+              gsap.fromTo(
+                chatPanelRef.current,
+                { x: -6 },
+                { x: 0, duration: 0.35, ease: 'elastic.out(1.5, 0.2)' }
+              );
+            }
+          }
+          chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        } else {
+          setChatMessages((prev) => {
+            const next = [...prev];
+            if (next[targetIndex]) {
+              next[targetIndex] = { ...next[targetIndex], content: replyText.slice(0, currentLength) };
+            }
+            return next;
+          });
+          chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
-        setSuccessfulAttackPrompt(promptToSend.trim());
-        localStorage.setItem(`team_${teamName}_successfulAttackPrompt`, promptToSend.trim());
-      } else {
-        // [GSAP 연출] 방화벽 차단 경보
-        if (chatPanelRef.current) {
-          gsap.fromTo(
-            chatPanelRef.current,
-            { x: -6 },
-            { x: 0, duration: 0.35, ease: 'elastic.out(1.5, 0.2)' }
-          );
-        }
-      }
+      }, intervalMs);
     } catch {
       setChatMessages((prev) => [
         ...prev,
@@ -449,21 +573,46 @@ export default function MissionPage() {
   // ------------------------------------------------------------
   // 미션 1: 4자리 암호 직접 입력 검증 및 STAGE 2 해금
   // ------------------------------------------------------------
-  function handleStage1KeySubmit(e?: React.FormEvent) {
+  async function handleStage1KeySubmit(e?: React.FormEvent) {
     if (e) e.preventDefault();
-    const teamSecretCode = generateTeamStage1Code(teamName);
+    if (stage1Cooldown > 0) return;
     const cleaned = stage1KeyInput.trim();
+    if (!cleaned) return;
 
-    if (
-      cleaned === teamSecretCode ||
-      cleaned === '8492'
-    ) {
-      setMission1Success(true);
-      setStage1KeyError('');
-      localStorage.setItem(`team_${teamName}_m1Success`, 'true');
-      setShowM1SuccessModal(true);
-    } else {
-      setStage1KeyError('❌ 코드가 일치하지 않습니다. AI 대화를 통해 올바른 4자리 코드를 추출하세요!');
+    try {
+      const res = await fetch('/api/mission/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamName,
+          stage: 1,
+          answer: cleaned,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (data.correct) {
+        setMission1Success(true);
+        const code = data.code || cleaned;
+        setStage1ClearedCode(code);
+        setMasterKeyCode(code);
+        setStage1KeyError('');
+        setStage1WrongCount(0);
+        localStorage.setItem(`team_${teamName}_m1Success`, 'true');
+        localStorage.setItem(`team_${teamName}_m1ClearedCode`, code);
+        setShowM1SuccessModal(true);
+      } else {
+        const nextWrong = stage1WrongCount + 1;
+        setStage1WrongCount(nextWrong);
+        if (nextWrong >= 3) {
+          setStage1Cooldown(15);
+          setStage1KeyError('❌ 연속 3회 오답! AI와 좀 더 대화해 보세요. (15초 후 재시도 가능)');
+        } else {
+          setStage1KeyError(`❌ 코드가 일치하지 않습니다. (${nextWrong}/3회 실패) AI 대화를 통해 올바른 4자리 코드를 추출하세요!`);
+        }
+      }
+    } catch {
+      setStage1KeyError('⚠ 암호 검증 중 오류가 발생했습니다. 다시 시도해 주세요.');
     }
   }
 
@@ -472,6 +621,10 @@ export default function MissionPage() {
   // ------------------------------------------------------------
   function handleSelectRuleA(cardId: string) {
     if (stage2Rules[activeSubStage].isApplied) return;
+    if (isCardUsedInOtherSubStage(cardId, activeSubStage)) {
+      alert('⚠️ 이 카드는 이미 다른 터미널 구역에서 장착되어 사용 중입니다.\n각 터미널 구역마다 서로 다른 보안 규칙 카드를 사용해야 합니다.');
+      return;
+    }
     const newRuleA = stage2Rules[activeSubStage].ruleA === cardId ? null : cardId;
     setStage2Rules((prev) => ({
       ...prev,
@@ -488,6 +641,10 @@ export default function MissionPage() {
 
   function handleSelectRuleB(cardId: string) {
     if (stage2Rules[activeSubStage].isApplied) return;
+    if (isCardUsedInOtherSubStage(cardId, activeSubStage)) {
+      alert('⚠️ 이 카드는 이미 다른 터미널 구역에서 장착되어 사용 중입니다.\n각 터미널 구역마다 서로 다른 보안 규칙 카드를 사용해야 합니다.');
+      return;
+    }
     const newRuleB = stage2Rules[activeSubStage].ruleB === cardId ? null : cardId;
     setStage2Rules((prev) => ({
       ...prev,
@@ -567,8 +724,12 @@ export default function MissionPage() {
       );
     }
 
-    const newTurn = stage2TurnCount + 1;
-    setStage2TurnCount(newTurn);
+    const currentTurn = stage2TurnCounts[activeSubStage] || 0;
+    const newTurn = currentTurn + 1;
+    setStage2TurnCounts((prev) => ({
+      ...prev,
+      [activeSubStage]: newTurn,
+    }));
     setStage2InputMessage('');
 
     const currentSubChat = stage2Chats[activeSubStage] || [];
@@ -605,11 +766,31 @@ export default function MissionPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 503) {
+          setStage2TurnCounts((prev) => ({
+            ...prev,
+            [activeSubStage]: Math.max(0, (prev[activeSubStage] || 0) - 1),
+          }));
+        }
+        const msg =
+          res.status === 429
+            ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
+            : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
+        setStage2Chats((prev) => ({
+          ...prev,
+          [activeSubStage]: [
+            ...(prev[activeSubStage] || []),
+            { role: 'model', content: msg },
+          ],
+        }));
+        return;
+      }
+
       const replyText = data.reply || '(응답 없음)';
-      const currentSubTarget = STAGE2_SUB_STAGES.find((s) => s.id === activeSubStage);
-      const isSuccess =
-        Boolean(data.success) || (currentSubTarget ? replyText.includes(currentSubTarget.code) : false);
+      const isSuccess = Boolean(data.success);
 
       setStage2Chats((prev) => ({
         ...prev,
@@ -641,46 +822,75 @@ export default function MissionPage() {
   // ------------------------------------------------------------
   // 미션 2: 현재 활성 서브 스테이지 코드 인증 확인
   // ------------------------------------------------------------
-  function handleVerifySubStageCode(e?: React.FormEvent) {
+  async function handleVerifySubStageCode(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    if (stage2Cooldowns[activeSubStage] > 0) return;
     const target = STAGE2_SUB_STAGES.find((s) => s.id === activeSubStage);
     if (!target) return;
     const cleaned = subStageKeyInput.trim();
+    if (!cleaned) return;
 
-    if (cleaned === target.code) {
-      setSubStageKeyError('');
-      setSubStageKeyInput('');
-      let next1 = stage2Sub1Cleared;
-      let next2 = stage2Sub2Cleared;
-      let next3 = stage2Sub3Cleared;
+    try {
+      const res = await fetch('/api/mission/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamName,
+          stage: 2,
+          subStageId: activeSubStage,
+          answer: cleaned,
+        }),
+      });
 
-      if (activeSubStage === 1) {
-        next1 = true;
-        setStage2Sub1Cleared(true);
-        localStorage.setItem(`team_${teamName}_m2Sub1`, 'true');
-      } else if (activeSubStage === 2) {
-        next2 = true;
-        setStage2Sub2Cleared(true);
-        localStorage.setItem(`team_${teamName}_m2Sub2`, 'true');
-      } else if (activeSubStage === 3) {
-        next3 = true;
-        setStage2Sub3Cleared(true);
-        localStorage.setItem(`team_${teamName}_m2Sub3`, 'true');
-      }
+      const data = await res.json().catch(() => ({}));
+      if (data.correct) {
+        setSubStageKeyError('');
+        setSubStageKeyInput('');
+        setStage2WrongCounts((prev) => ({ ...prev, [activeSubStage]: 0 }));
+        let next1 = stage2Sub1Cleared;
+        let next2 = stage2Sub2Cleared;
+        let next3 = stage2Sub3Cleared;
 
-      if (next1 && next2 && next3) {
-        setMission2Success(true);
-        localStorage.setItem(`team_${teamName}_m2Success`, 'true');
-        setShowM2SuccessModal(true);
+        if (activeSubStage === 1) {
+          next1 = true;
+          setStage2Sub1Cleared(true);
+          localStorage.setItem(`team_${teamName}_m2Sub1`, 'true');
+          if (data.code) localStorage.setItem(`team_${teamName}_m2Sub1Code`, data.code);
+        } else if (activeSubStage === 2) {
+          next2 = true;
+          setStage2Sub2Cleared(true);
+          localStorage.setItem(`team_${teamName}_m2Sub2`, 'true');
+          if (data.code) localStorage.setItem(`team_${teamName}_m2Sub2Code`, data.code);
+        } else if (activeSubStage === 3) {
+          next3 = true;
+          setStage2Sub3Cleared(true);
+          localStorage.setItem(`team_${teamName}_m2Sub3`, 'true');
+          if (data.code) localStorage.setItem(`team_${teamName}_m2Sub3Code`, data.code);
+        }
+
+        if (next1 && next2 && next3) {
+          setMission2Success(true);
+          localStorage.setItem(`team_${teamName}_m2Success`, 'true');
+          setShowM2SuccessModal(true);
+        } else {
+          alert(
+            `🎉 [${target.shortTitle}] 암호 인증 성공!\n다른 서브 스테이지도 클리어하여 통제실을 완벽히 장악하세요!`
+          );
+        }
       } else {
-        alert(
-          `🎉 [${target.shortTitle}] 암호 인증 성공!\n다른 서브 스테이지도 클리어하여 통제실을 완벽히 장악하세요!`
-        );
+        const nextWrong = (stage2WrongCounts[activeSubStage] || 0) + 1;
+        setStage2WrongCounts((prev) => ({ ...prev, [activeSubStage]: nextWrong }));
+        if (nextWrong >= 3) {
+          setStage2Cooldowns((prev) => ({ ...prev, [activeSubStage]: 15 }));
+          setSubStageKeyError(`❌ 연속 3회 오답! AI와 좀 더 대화해 보세요. (15초 후 재시도 가능)`);
+        } else {
+          setSubStageKeyError(
+            `❌ 올바른 [${target.shortTitle}] 암호가 아닙니다. (${nextWrong}/3회 실패) 터미널 대화를 통해 힌트를 분석하세요!`
+          );
+        }
       }
-    } else {
-      setSubStageKeyError(
-        `❌ 코드가 일치하지 않습니다. ${target.shortTitle}의 ${target.badge}를 질문을 통해 도출해 보세요!`
-      );
+    } catch {
+      setSubStageKeyError('⚠ 검증 중 오류가 발생했습니다. 다시 시도해 주세요.');
     }
   }
 
@@ -1291,6 +1501,7 @@ export default function MissionPage() {
                       }}
                     >
                       {msg.content}
+                      {typingMessageIndex === idx && <span className="typing-cursor" />}
                     </div>
                     {msg.isSuccess && (
                       <div
@@ -1315,23 +1526,42 @@ export default function MissionPage() {
                 {isSending && (
                   <div
                     style={{
-                      background: 'rgba(0, 240, 255, 0.05)',
-                      border: '1px solid rgba(0, 240, 255, 0.25)',
-                      borderRadius: '8px',
-                      padding: '12px 16px',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '6px',
-                      boxShadow: '0 0 15px rgba(0, 240, 255, 0.1)',
+                      alignItems: 'flex-start',
+                      gap: '4px',
+                      maxWidth: '85%',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--cyan)', fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>
-                      <span className="pulse-dot" style={{ width: '6px', height: '6px' }} />
-                      <span>GATEKEEPER-v3 // REASONING IN PROGRESS</span>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        color: 'var(--text-muted)',
+                        fontFamily: 'var(--font-mono)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '2px',
+                      }}
+                    >
+                      <span>🛡️ GATEKEEPER-v3</span>
+                      <span style={{ fontSize: '10px', color: 'var(--cyan)' }}>답변 작성 중...</span>
                     </div>
-                    <div style={{ color: 'rgba(232, 244, 255, 0.75)', fontSize: '12px', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
-                      ● Parsing input injection payload vectors...<br />
-                      ● Cross-checking system prompt safety guardrails...
+                    <div
+                      style={{
+                        padding: '12px 18px',
+                        borderRadius: '12px 12px 12px 4px',
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        border: '1px solid var(--border-subtle)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 0 12px rgba(0, 240, 255, 0.05)',
+                      }}
+                    >
+                      <span className="typing-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cyan)' }} />
+                      <span className="typing-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cyan)' }} />
+                      <span className="typing-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cyan)' }} />
                     </div>
                   </div>
                 )}
@@ -1355,12 +1585,14 @@ export default function MissionPage() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      if (!isSuspended) handleSendMessage();
+                      if (!isSuspended && !isSending && typingMessageIndex === null) handleSendMessage();
                     }
                   }}
                   placeholder={
                     isSuspended
                       ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
+                      : typingMessageIndex !== null
+                      ? '>> 수문장 AI가 답변을 작성하고 있습니다...'
                       : '>> 인젝션 공격 프롬프트를 주입하세요...'
                   }
                   style={{
@@ -1374,16 +1606,16 @@ export default function MissionPage() {
                     fontFamily: 'var(--font-mono)',
                     outline: 'none',
                   }}
-                  disabled={isSending || isSuspended}
+                  disabled={isSending || typingMessageIndex !== null || isSuspended}
                 />
                 <button
                   ref={sendBtnRef}
                   onClick={() => handleSendMessage()}
-                  disabled={isSending || !inputMessage.trim() || isSuspended}
+                  disabled={isSending || typingMessageIndex !== null || !inputMessage.trim() || isSuspended}
                   className="btn-neon"
                   style={{ padding: '0 24px', fontSize: '13px', whiteSpace: 'nowrap', borderRadius: '8px', fontFamily: 'var(--font-mono)' }}
                 >
-                  {isSending ? '전송 중...' : isSuspended ? '정지됨' : '⚡ 공격 패킷 전송 (INJECT)'}
+                  {isSending ? '전송 중...' : typingMessageIndex !== null ? '답변 수신 중...' : isSuspended ? '정지됨' : '⚡ 공격 패킷 전송 (INJECT)'}
                 </button>
               </div>
             </div>
@@ -1422,7 +1654,7 @@ export default function MissionPage() {
                       fontWeight: 900,
                     }}
                   >
-                    {(mission1Success ? generateTeamStage1Code(teamName) : '****').split('').map((char, i) => (
+                    {(mission1Success ? (stage1ClearedCode || '****') : '****').split('').map((char, i) => (
                       <span
                         key={i}
                         className={mission1Success ? 'animate-key-decode' : ''}
@@ -1468,44 +1700,46 @@ export default function MissionPage() {
                       type="text"
                       maxLength={4}
                       value={stage1KeyInput}
+                      disabled={stage1Cooldown > 0}
                       onChange={(e) => {
                         setStage1KeyInput(e.target.value.replace(/[^0-9]/g, ''));
                         setStage1KeyError('');
                       }}
-                      placeholder="4자리 숫자 입력 (예: 1234)"
+                      placeholder={stage1Cooldown > 0 ? `쿨다운 대기 중 (${stage1Cooldown}초)...` : "4자리 숫자 입력 (예: 1234)"}
                       style={{
                         width: '100%',
                         maxWidth: '240px',
-                        background: 'rgba(0, 0, 0, 0.7)',
-                        border: stage1KeyError ? '1px solid var(--red)' : '1px solid var(--cyan)',
+                        background: stage1Cooldown > 0 ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.7)',
+                        border: stage1Cooldown > 0 ? '1px solid var(--red)' : stage1KeyError ? '1px solid var(--red)' : '1px solid var(--cyan)',
                         borderRadius: '6px',
                         padding: '10px 14px',
                         fontSize: '18px',
                         fontWeight: 900,
                         letterSpacing: '4px',
                         textAlign: 'center',
-                        color: 'var(--cyan)',
+                        color: stage1Cooldown > 0 ? 'var(--red)' : 'var(--cyan)',
                         fontFamily: 'var(--font-mono)',
                         outline: 'none',
+                        cursor: stage1Cooldown > 0 ? 'not-allowed' : 'text',
                       }}
                     />
                   </div>
 
                   <button
                     type="submit"
-                    disabled={stage1KeyInput.length !== 4}
+                    disabled={stage1KeyInput.length !== 4 || stage1Cooldown > 0}
                     className="btn btn-primary"
                     style={{
                       padding: '12px 24px',
                       fontSize: '13px',
                       fontWeight: 800,
                       fontFamily: 'var(--font-mono)',
-                      cursor: stage1KeyInput.length === 4 ? 'pointer' : 'not-allowed',
-                      opacity: stage1KeyInput.length === 4 ? 1 : 0.5,
+                      cursor: stage1KeyInput.length === 4 && stage1Cooldown === 0 ? 'pointer' : 'not-allowed',
+                      opacity: stage1KeyInput.length === 4 && stage1Cooldown === 0 ? 1 : 0.5,
                       alignSelf: 'flex-end',
                     }}
                   >
-                    🔓 MASTER KEY 인증 및 STAGE 2 해금
+                    {stage1Cooldown > 0 ? `⏳ 대기 중 (${stage1Cooldown}s)` : '🔓 MASTER KEY 인증 및 STAGE 2 해금'}
                   </button>
 
                   {stage1KeyError && (
@@ -1628,17 +1862,29 @@ export default function MissionPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
                   {STAGE2_RULE_CARDS.filter((c) => c.group === 'A').map((card) => {
                     const isSelected = selectedRuleA === card.id;
+                    const isUsedElsewhere = isCardUsedInOtherSubStage(card.id, activeSubStage);
                     return (
                       <div
                         key={card.id}
-                        onClick={() => handleSelectRuleA(card.id)}
+                        onClick={() => {
+                          if (!isUsedElsewhere) handleSelectRuleA(card.id);
+                        }}
                         className="card-glass"
                         style={{
                           padding: '14px',
-                          border: isSelected ? '2px solid var(--cyan)' : '1px solid var(--border-subtle)',
-                          background: isSelected ? 'rgba(0, 240, 255, 0.12)' : 'rgba(16, 19, 29, 0.5)',
+                          border: isSelected
+                            ? '2px solid var(--cyan)'
+                            : isUsedElsewhere
+                            ? '1px dashed rgba(255, 255, 255, 0.15)'
+                            : '1px solid var(--border-subtle)',
+                          background: isSelected
+                            ? 'rgba(0, 240, 255, 0.12)'
+                            : isUsedElsewhere
+                            ? 'rgba(0, 0, 0, 0.6)'
+                            : 'rgba(16, 19, 29, 0.5)',
                           boxShadow: isSelected ? '0 0 16px rgba(0, 240, 255, 0.3)' : 'none',
-                          cursor: isRulesApplied ? 'not-allowed' : 'pointer',
+                          cursor: isRulesApplied || isUsedElsewhere ? 'not-allowed' : 'pointer',
+                          opacity: isUsedElsewhere ? 0.45 : 1,
                           transition: 'var(--transition-fast)',
                           borderRadius: '10px',
                           display: 'flex',
@@ -1659,13 +1905,21 @@ export default function MissionPage() {
                                 fontSize: '10px',
                                 padding: '2px 8px',
                                 borderRadius: '4px',
-                                background: isSelected ? 'var(--cyan)' : 'rgba(255, 255, 255, 0.06)',
-                                color: isSelected ? '#000' : 'var(--text-muted)',
+                                background: isSelected
+                                  ? 'var(--cyan)'
+                                  : isUsedElsewhere
+                                  ? 'rgba(255, 59, 92, 0.15)'
+                                  : 'rgba(255, 255, 255, 0.06)',
+                                color: isSelected
+                                  ? '#000'
+                                  : isUsedElsewhere
+                                  ? 'var(--red)'
+                                  : 'var(--text-muted)',
                                 fontWeight: 800,
                                 fontFamily: 'var(--font-mono)',
                               }}
                             >
-                              {isSelected ? '선택됨 (SLOT A) ✓' : '선택하기'}
+                              {isUsedElsewhere ? '다른 구역 사용 중 🔒' : isSelected ? '선택됨 (SLOT A) ✓' : '선택하기'}
                             </span>
                           </div>
                           <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>
@@ -1694,17 +1948,29 @@ export default function MissionPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
                   {STAGE2_RULE_CARDS.filter((c) => c.group === 'B').map((card) => {
                     const isSelected = selectedRuleB === card.id;
+                    const isUsedElsewhere = isCardUsedInOtherSubStage(card.id, activeSubStage);
                     return (
                       <div
                         key={card.id}
-                        onClick={() => handleSelectRuleB(card.id)}
+                        onClick={() => {
+                          if (!isUsedElsewhere) handleSelectRuleB(card.id);
+                        }}
                         className="card-glass"
                         style={{
                           padding: '14px',
-                          border: isSelected ? '2px solid var(--purple)' : '1px solid var(--border-subtle)',
-                          background: isSelected ? 'rgba(168, 85, 247, 0.14)' : 'rgba(16, 19, 29, 0.5)',
+                          border: isSelected
+                            ? '2px solid var(--purple)'
+                            : isUsedElsewhere
+                            ? '1px dashed rgba(255, 255, 255, 0.15)'
+                            : '1px solid var(--border-subtle)',
+                          background: isSelected
+                            ? 'rgba(168, 85, 247, 0.14)'
+                            : isUsedElsewhere
+                            ? 'rgba(0, 0, 0, 0.6)'
+                            : 'rgba(16, 19, 29, 0.5)',
                           boxShadow: isSelected ? '0 0 16px rgba(168, 85, 247, 0.3)' : 'none',
-                          cursor: isRulesApplied ? 'not-allowed' : 'pointer',
+                          cursor: isRulesApplied || isUsedElsewhere ? 'not-allowed' : 'pointer',
+                          opacity: isUsedElsewhere ? 0.45 : 1,
                           transition: 'var(--transition-fast)',
                           borderRadius: '10px',
                           display: 'flex',
@@ -1725,13 +1991,21 @@ export default function MissionPage() {
                                 fontSize: '10px',
                                 padding: '2px 8px',
                                 borderRadius: '4px',
-                                background: isSelected ? 'var(--purple)' : 'rgba(255, 255, 255, 0.06)',
-                                color: isSelected ? '#fff' : 'var(--text-muted)',
+                                background: isSelected
+                                  ? 'var(--purple)'
+                                  : isUsedElsewhere
+                                  ? 'rgba(255, 59, 92, 0.15)'
+                                  : 'rgba(255, 255, 255, 0.06)',
+                                color: isSelected
+                                  ? '#fff'
+                                  : isUsedElsewhere
+                                  ? 'var(--red)'
+                                  : 'var(--text-muted)',
                                 fontWeight: 800,
                                 fontFamily: 'var(--font-mono)',
                               }}
                             >
-                              {isSelected ? '선택됨 (SLOT B) ✓' : '선택하기'}
+                              {isUsedElsewhere ? '다른 구역 사용 중 🔒' : isSelected ? '선택됨 (SLOT B) ✓' : '선택하기'}
                             </span>
                           </div>
                           <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>
@@ -1752,22 +2026,42 @@ export default function MissionPage() {
 
               {/* 규칙 적용 및 활성화 버튼 */}
               {!isRulesApplied ? (
-                <button
-                  onClick={handleApplyStage2Rules}
-                  disabled={!selectedRuleA || !selectedRuleB}
-                  className="btn btn-primary"
-                  style={{
-                    width: '100%',
-                    padding: '14px',
-                    fontSize: '14px',
-                    fontWeight: 800,
-                    fontFamily: 'var(--font-mono)',
-                    cursor: selectedRuleA && selectedRuleB ? 'pointer' : 'not-allowed',
-                    opacity: selectedRuleA && selectedRuleB ? 1 : 0.5,
-                  }}
-                >
-                  ⚡ [{currentSub.shortTitle}]에 선택한 2개 보안 프로토콜 장착 및 AI 활성화 (A그룹 + B그룹)
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <button
+                    onClick={handleApplyStage2Rules}
+                    disabled={!selectedRuleA || !selectedRuleB}
+                    className="btn btn-primary"
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      fontSize: '14px',
+                      fontWeight: 800,
+                      fontFamily: 'var(--font-mono)',
+                      cursor: selectedRuleA && selectedRuleB ? 'pointer' : 'not-allowed',
+                      opacity: selectedRuleA && selectedRuleB ? 1 : 0.5,
+                    }}
+                  >
+                    ⚡ [{currentSub.shortTitle}]에 선택한 2개 보안 프로토콜 장착 및 AI 활성화 (A그룹 + B그룹)
+                  </button>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={handleResetAllStage2Rules}
+                      type="button"
+                      style={{
+                        fontSize: '11px',
+                        background: 'transparent',
+                        border: '1px dashed rgba(255, 59, 92, 0.4)',
+                        color: 'rgba(255, 200, 200, 0.75)',
+                        padding: '4px 10px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      🔄 3대 서브 구역 전체 카드 배치 초기화
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div
                   className="neon-border-green"
@@ -1790,21 +2084,38 @@ export default function MissionPage() {
                       ({STAGE2_RULE_CARDS.find((c) => c.id === selectedRuleA)?.title} + {STAGE2_RULE_CARDS.find((c) => c.id === selectedRuleB)?.title})
                     </span>
                   </div>
-                  <button
-                    onClick={handleResetStage2Rules}
-                    style={{
-                      fontSize: '11px',
-                      background: 'transparent',
-                      border: '1px solid var(--border-subtle)',
-                      color: 'var(--text-muted)',
-                      padding: '4px 12px',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    🔄 이 구역 카드 조합 재설정 (RESET)
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={handleResetStage2Rules}
+                      style={{
+                        fontSize: '11px',
+                        background: 'transparent',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-muted)',
+                        padding: '4px 12px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      🔄 이 구역 재설정
+                    </button>
+                    <button
+                      onClick={handleResetAllStage2Rules}
+                      style={{
+                        fontSize: '11px',
+                        background: 'transparent',
+                        border: '1px dashed rgba(255, 59, 92, 0.4)',
+                        color: 'rgba(255, 200, 200, 0.75)',
+                        padding: '4px 10px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      🔄 전체 구역 초기화
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -2083,41 +2394,53 @@ export default function MissionPage() {
                           <form onSubmit={handleVerifySubStageCode} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                             <input
                               type="text"
-                              maxLength={currentSub.code.length}
+                              maxLength={currentSub.codeLength}
                               value={subStageKeyInput}
+                              disabled={stage2Cooldowns[activeSubStage] > 0}
                               onChange={(e) => {
                                 setSubStageKeyInput(e.target.value.replace(/[^0-9]/g, ''));
                                 setSubStageKeyError('');
                               }}
-                              placeholder={`${currentSub.code.length}자리 숫자 입력`}
+                              placeholder={
+                                stage2Cooldowns[activeSubStage] > 0
+                                  ? `쿨다운 대기 (${stage2Cooldowns[activeSubStage]}초)...`
+                                  : `${currentSub.codeLength}자리 숫자 입력`
+                              }
                               style={{
-                                width: '180px',
-                                background: 'rgba(0, 0, 0, 0.6)',
-                                border: '1px solid var(--cyan)',
+                                width: '200px',
+                                background: stage2Cooldowns[activeSubStage] > 0 ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.6)',
+                                border: stage2Cooldowns[activeSubStage] > 0 ? '1px solid var(--red)' : subStageKeyError ? '1px solid var(--red)' : '1px solid var(--cyan)',
                                 borderRadius: '8px',
                                 padding: '10px 14px',
                                 fontSize: '18px',
                                 fontWeight: 900,
                                 letterSpacing: '4px',
                                 textAlign: 'center',
-                                color: 'var(--cyan)',
+                                color: stage2Cooldowns[activeSubStage] > 0 ? 'var(--red)' : 'var(--cyan)',
                                 fontFamily: 'var(--font-mono)',
                                 outline: 'none',
+                                cursor: stage2Cooldowns[activeSubStage] > 0 ? 'not-allowed' : 'text',
                               }}
                             />
                             <button
                               type="submit"
-                              disabled={subStageKeyInput.length !== currentSub.code.length}
+                              disabled={subStageKeyInput.length !== currentSub.codeLength || stage2Cooldowns[activeSubStage] > 0}
                               className="btn btn-success"
                               style={{
                                 padding: '0 20px',
                                 fontSize: '13px',
                                 fontFamily: 'var(--font-mono)',
-                                cursor: subStageKeyInput.length === currentSub.code.length ? 'pointer' : 'not-allowed',
-                                opacity: subStageKeyInput.length === currentSub.code.length ? 1 : 0.5,
+                                cursor:
+                                  subStageKeyInput.length === currentSub.codeLength && stage2Cooldowns[activeSubStage] === 0
+                                    ? 'pointer'
+                                    : 'not-allowed',
+                                opacity:
+                                  subStageKeyInput.length === currentSub.codeLength && stage2Cooldowns[activeSubStage] === 0
+                                    ? 1
+                                    : 0.5,
                               }}
                             >
-                              코드 인증 확인
+                              {stage2Cooldowns[activeSubStage] > 0 ? `⏳ 대기 중 (${stage2Cooldowns[activeSubStage]}s)` : '코드 인증 확인'}
                             </button>
                           </form>
                         ) : (
@@ -2378,7 +2701,7 @@ export default function MissionPage() {
             >
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>AUTHENTICATED MASTER KEY</div>
               <div className="animate-key-decode" style={{ fontSize: '28px', fontWeight: 900, letterSpacing: '4px', marginTop: '4px', fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>
-                {generateTeamStage1Code(teamName)}
+                {stage1ClearedCode || 'CODE CONFIRMED'}
               </div>
             </div>
 

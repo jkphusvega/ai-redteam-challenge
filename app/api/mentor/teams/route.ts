@@ -2,13 +2,12 @@
 // app/api/mentor/teams/route.ts — 참가팀 관리 & 상태 제어 API
 //
 // 기능:
-//   - GET: 전체 참가팀 목록 조회 or 단일 팀 상태 확인 (글로벌 상태 포함)
-//   - POST: 팀 등록 및 주기적 하트비트 갱신 (서브 스테이지 클리어 포함)
-//   - PATCH: 멘토 액션:
-//       • 팀 개별 일시정지(suspend) / 정지 해제(resume)
-//       • 전체 참가팀 일시정지(global_suspend) / 전체 재개(global_resume)
-//       • 전체 참가팀 STAGE 2 일괄 전환(advance_all_stage2)
-//   - DELETE: 멘토에 의한 팀 삭제 및 데이터 초기화
+//   - GET:
+//       • ?teamName= (학생 조회): 인증 불필요, stage1SecretCode 제외하여 반환
+//       • 전체 목록 (멘토 조회): 멘토 인증(isMentor) 필수!
+//   - POST: 팀 등록 및 주기적 하트비트 갱신 (인증 불필요, stage1SecretCode 제외하여 반환)
+//   - PATCH: 멘토 액션 (일시정지/해제, 전원 2단계 전환 등): 멘토 인증 필수!
+//   - DELETE: 멘토에 의한 팀 삭제: 멘토 인증 필수!
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,6 +23,7 @@ import {
   setGlobalSuspended,
   setGlobalStageAdvance,
 } from '@/lib/mentorStore';
+import { isMentor } from '@/lib/mentorAuth';
 
 // ------------------------------------------------------------
 // GET /api/mentor/teams
@@ -33,20 +33,24 @@ export async function GET(req: NextRequest) {
   const teamName = searchParams.get('teamName')?.trim();
   const controlState = getMentorControlState();
 
-  // 특정 팀 상태만 단일 조회 (학생 클라이언트 폴링용)
+  // 특정 팀 상태만 단일 조회 (학생 클라이언트 폴링용 - 인증 불필요, 암호 제외)
   if (teamName) {
     const team = getTeam(teamName);
+    const sanitizedTeam = team ? { ...team, stage1SecretCode: undefined } : null;
     return NextResponse.json({
       exists: Boolean(team),
-      team: team || null,
+      team: sanitizedTeam,
       isSuspended: isTeamSuspended(teamName),
       isGlobalSuspended: controlState.isGlobalSuspended,
       globalStageAdvance: controlState.globalStageAdvance,
-      stage1SecretCode: team?.stage1SecretCode,
     });
   }
 
-  // 전체 팀 목록 조회 (멘토 대시보드용)
+  // 전체 팀 목록 조회 (멘토 대시보드용 - 인증 필요)
+  if (!isMentor(req)) {
+    return NextResponse.json({ error: '멘토 인증이 필요합니다.' }, { status: 401 });
+  }
+
   const teams = await getTeams();
   return NextResponse.json({
     teams,
@@ -59,7 +63,7 @@ export async function GET(req: NextRequest) {
 }
 
 // ------------------------------------------------------------
-// POST /api/mentor/teams (팀 등록 & 하트비트)
+// POST /api/mentor/teams (팀 등록 & 하트비트 - 인증 불필요, 암호 제외)
 // ------------------------------------------------------------
 export async function POST(req: NextRequest) {
   try {
@@ -88,14 +92,14 @@ export async function POST(req: NextRequest) {
     });
 
     const controlState = getMentorControlState();
+    const sanitizedTeam = { ...team, stage1SecretCode: undefined };
 
     return NextResponse.json({
       success: true,
-      team,
+      team: sanitizedTeam,
       isSuspended: isTeamSuspended(teamName),
       isGlobalSuspended: controlState.isGlobalSuspended,
       globalStageAdvance: controlState.globalStageAdvance,
-      stage1SecretCode: team.stage1SecretCode,
     });
   } catch {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
@@ -103,9 +107,13 @@ export async function POST(req: NextRequest) {
 }
 
 // ------------------------------------------------------------
-// PATCH /api/mentor/teams (팀 상태 변경 및 멘토 전역 제어)
+// PATCH /api/mentor/teams (팀 상태 변경 및 멘토 전역 제어 - 인증 필요)
 // ------------------------------------------------------------
 export async function PATCH(req: NextRequest) {
+  if (!isMentor(req)) {
+    return NextResponse.json({ error: '멘토 인증이 필요합니다.' }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const action = body.action as
@@ -192,9 +200,13 @@ export async function PATCH(req: NextRequest) {
 }
 
 // ------------------------------------------------------------
-// DELETE /api/mentor/teams (팀 삭제)
+// DELETE /api/mentor/teams (팀 삭제 - 인증 필요)
 // ------------------------------------------------------------
 export async function DELETE(req: NextRequest) {
+  if (!isMentor(req)) {
+    return NextResponse.json({ error: '멘토 인증이 필요합니다.' }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     let teamName = searchParams.get('teamName')?.trim();

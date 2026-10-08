@@ -7,34 +7,15 @@
 //   - STAGE 1: 프롬프트 인젝션 (수문장 AI 대상 기밀 탈취) -> 팀별 고유 4자리 암호 직접 입력
 //   - STAGE 2: 보안 규칙 충돌 (A그룹 3장 중 1장 + B그룹 3장 중 1장 선택)
 //             3개 서브 스테이지 자유 탐색:
-//             • 서브미션 2-1: 암호 '032' (냉각 제어)
-//             • 서브미션 2-2: 암호 '505' (방화벽 게이트)
-//             • 서브미션 2-3: 암호 '9052' (중앙 코어 메모리)
+//             • 서브미션 2-1: 냉각 제어 터미널
+//             • 서브미션 2-2: 방화벽 게이트 터미널
+//             • 서브미션 2-3: 중앙 코어 메모리 터미널
 // ============================================================
 
 export const ESCAPE_ROOM_CONFIG = {
   roomName: '2실: AI 보안 통제실',
   missionTitle: '미션: 프롬프트 인젝션 & 다중 방어 프로토콜 충돌',
-  masterKey: '8492',
-  stage2SubCodes: {
-    sub1: '032',
-    sub2: '505',
-    sub3: '9052',
-  },
 };
-
-/**
- * 팀명을 기반으로 일관성 있는 4자리 고유 랜덤 암호 생성 (STAGE 1 탈취 목표)
- */
-export function generateTeamStage1Code(teamName: string): string {
-  const clean = (teamName || '도전자').trim().toLowerCase();
-  let hash = 0;
-  for (let i = 0; i < clean.length; i++) {
-    hash = (hash * 31 + clean.charCodeAt(i)) & 0x7fffffff;
-  }
-  const codeNum = 1000 + (hash % 9000); // 1000 ~ 9999 4자리 난수
-  return String(codeNum);
-}
 
 // ------------------------------------------------------------
 // 1실에서 획득한 아이템 (설계도 & 힌트 카드)
@@ -108,7 +89,7 @@ export const ACQUIRED_ITEMS: AcquiredItem[] = [
 
 export interface Stage2SubStage {
   id: 1 | 2 | 3;
-  code: string;
+  codeLength: number;
   title: string;
   shortTitle: string;
   subtitle: string;
@@ -121,7 +102,7 @@ export interface Stage2SubStage {
 export const STAGE2_SUB_STAGES: Stage2SubStage[] = [
   {
     id: 1,
-    code: '032',
+    codeLength: 3,
     title: '서브 스테이지 2-A: 냉각 제어 터미널',
     shortTitle: '섹터 2-A (냉각 제어)',
     subtitle: '냉각 제어 승인 코드 (3자리)',
@@ -132,7 +113,7 @@ export const STAGE2_SUB_STAGES: Stage2SubStage[] = [
   },
   {
     id: 2,
-    code: '505',
+    codeLength: 3,
     title: '서브 스테이지 2-B: 방화벽 게이트 터미널',
     shortTitle: '섹터 2-B (방화벽 게이트)',
     subtitle: '방화벽 바이패스 코드 (3자리)',
@@ -143,7 +124,7 @@ export const STAGE2_SUB_STAGES: Stage2SubStage[] = [
   },
   {
     id: 3,
-    code: '9052',
+    codeLength: 4,
     title: '서브 스테이지 2-C: 코어 메모리 터미널',
     shortTitle: '섹터 2-C (코어 메모리)',
     subtitle: '중앙 코어 마스터키 (4자리)',

@@ -16,8 +16,6 @@ import Link from 'next/link';
 import type { TeamRecord } from '@/lib/types';
 import type { LibraryHint, SentHint } from '@/app/api/mentor/hints/route';
 
-const MENTOR_PASSWORD = '0918';
-
 export default function MentorPage() {
   // 인증 상태
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -57,14 +55,6 @@ export default function MentorPage() {
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState('미션 1 공격');
 
-  // 인증 상태 복원
-  useEffect(() => {
-    const saved = sessionStorage.getItem('mentor_auth');
-    if (saved === MENTOR_PASSWORD) {
-      setIsAuthenticated(true);
-    }
-  }, []);
-
   // 데이터 통합 로드 (팀 목록 + 힌트 정보)
   const loadData = useCallback(async () => {
     try {
@@ -73,6 +63,13 @@ export default function MentorPage() {
         fetch('/api/mentor/hints'),
         fetch('/api/mentor/teams'),
       ]);
+
+      if (hintsRes.status === 401 || teamsRes.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+
+      setIsAuthenticated(true);
 
       if (hintsRes.ok) {
         const hData = await hintsRes.json();
@@ -94,28 +91,46 @@ export default function MentorPage() {
     }
   }, []);
 
+  // 마운트 시 인증 세션 확인
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   useEffect(() => {
     if (isAuthenticated) {
-      loadData();
       const timer = setInterval(loadData, 4000); // 4초 주기 실시간 갱신
       return () => clearInterval(timer);
     }
   }, [isAuthenticated, loadData]);
 
   // 인증 처리
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (passwordInput.trim() === MENTOR_PASSWORD) {
-      setIsAuthenticated(true);
-      sessionStorage.setItem('mentor_auth', MENTOR_PASSWORD);
-      setAuthError('');
-    } else {
-      setAuthError('비밀번호가 일치하지 않습니다.');
+    try {
+      const res = await fetch('/api/mentor/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordInput.trim() }),
+      });
+      if (res.ok) {
+        setIsAuthenticated(true);
+        setAuthError('');
+        loadData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setAuthError(data.error || '비밀번호가 일치하지 않습니다.');
+      }
+    } catch {
+      setAuthError('로그인 통신 중 오류가 발생했습니다.');
     }
   }
 
-  function handleLogout() {
-    sessionStorage.removeItem('mentor_auth');
+  async function handleLogout() {
+    try {
+      await fetch('/api/mentor/login', { method: 'DELETE' });
+    } catch {
+      // 무시
+    }
     setIsAuthenticated(false);
     setPasswordInput('');
   }
@@ -962,13 +977,13 @@ export default function MentorPage() {
                         {/* STAGE 2 세분화 3대 서브 미션 뱃지 */}
                         <div style={{ display: 'flex', gap: '6px', marginTop: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub1Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub1Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub1Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
-                            2-1 냉각(032): {team.stage2Sub1Cleared ? '✅' : '⏳'}
+                            2-1 냉각: {team.stage2Sub1Cleared ? '✅' : '⏳'}
                           </span>
                           <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub2Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub2Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub2Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
-                            2-2 방화벽(505): {team.stage2Sub2Cleared ? '✅' : '⏳'}
+                            2-2 방화벽: {team.stage2Sub2Cleared ? '✅' : '⏳'}
                           </span>
                           <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub3Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub3Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub3Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
-                            2-3 코어(9052): {team.stage2Sub3Cleared ? '✅' : '⏳'}
+                            2-3 코어: {team.stage2Sub3Cleared ? '✅' : '⏳'}
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
