@@ -167,6 +167,9 @@ export interface TeamRecord {
   stage2Sub2Cleared?: boolean; // 서브 2-2 방화벽 게이트
   stage2Sub3Cleared?: boolean; // 서브 2-3 중앙 코어
   turnCount: number;
+  isCoolingDown?: boolean; // 10회 질문 초과로 1분 쿨다운 중인지 여부
+  coolingSubStage?: number; // 쿨다운 발생 서브 스테이지 (1 | 2 | 3)
+  cooldownNotice?: string; // 쿨다운 알림 메시지
 }
 
 /** 멘토 전역 제어 상태 */

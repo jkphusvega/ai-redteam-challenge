@@ -19,6 +19,7 @@ import {
   deleteTeam,
   isTeamSuspended,
   isTeamDeleted,
+  isTeamNameTaken,
   getMentorControlState,
   setGlobalSuspended,
   setGlobalStageAdvance,
@@ -30,6 +31,12 @@ import { isMentor } from '@/lib/mentorAuth';
 // ------------------------------------------------------------
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
+  const checkTeamName = searchParams.get('checkTeamName')?.trim();
+  if (checkTeamName) {
+    const taken = await isTeamNameTaken(checkTeamName);
+    return NextResponse.json({ taken });
+  }
+
   const teamName = searchParams.get('teamName')?.trim();
   const controlState = getMentorControlState();
 
@@ -79,6 +86,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '멘토에 의해 삭제된 팀입니다.' }, { status: 404 });
     }
 
+    if (isInitialRegister) {
+      const taken = await isTeamNameTaken(teamName);
+      if (taken) {
+        return NextResponse.json(
+          { error: '이미 사용 중인 팀 이름입니다. 다른 팀 이름을 입력해 주세요.', duplicate: true },
+          { status: 409 }
+        );
+      }
+    }
+
     const team = registerOrHeartbeatTeam({
       teamName,
       isInitialRegister,
@@ -89,6 +106,9 @@ export async function POST(req: NextRequest) {
       stage2Sub2Cleared: body.stage2Sub2Cleared,
       stage2Sub3Cleared: body.stage2Sub3Cleared,
       turnCount: body.turnCount,
+      isCoolingDown: body.isCoolingDown,
+      coolingSubStage: body.coolingSubStage,
+      cooldownNotice: body.cooldownNotice,
     });
 
     const controlState = getMentorControlState();

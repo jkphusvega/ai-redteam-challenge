@@ -121,19 +121,6 @@ export default function HomePage() {
   // 미션 입장
   // ----------------------------------------------------------
 
-  function handleResetProgress() {
-    if (confirm('브라우저에 저장된 모든 팀의 풀이 기록과 로컬 캐시를 완전히 초기화하시겠습니까?')) {
-      localStorage.clear();
-      sessionStorage.clear();
-      setTeamName('');
-      setM1Done(false);
-      setM2Done(false);
-      setError('');
-      alert('모든 로컬 저장소 캐시가 초기화되었습니다.');
-      window.location.reload();
-    }
-  }
-
   async function handleEnterMission() {
     const cleanTeam = teamName.trim();
     if (!cleanTeam) {
@@ -142,6 +129,24 @@ export default function HomePage() {
     }
     setError('');
     setStarting(true);
+
+    const savedCurrentTeam = localStorage.getItem('teamName') || '';
+    const isSameTeamResume = savedCurrentTeam.toLowerCase() === cleanTeam.toLowerCase();
+
+    // 신규 팀명인 경우 서버에서 중복 체크
+    if (!isSameTeamResume) {
+      try {
+        const checkRes = await fetch(`/api/mentor/teams?checkTeamName=${encodeURIComponent(cleanTeam)}`);
+        const checkData = await checkRes.json().catch(() => ({}));
+        if (checkData.taken) {
+          setError('⚠️ 이미 다른 참가자가 사용 중인 팀 이름입니다. 다른 팀 이름을 입력해주세요.');
+          setStarting(false);
+          return;
+        }
+      } catch {
+        // 네트워크 에러 시 통과
+      }
+    }
 
     // 레거시 전역 키 영구 삭제
     [
@@ -158,17 +163,26 @@ export default function HomePage() {
 
     localStorage.setItem('teamName', cleanTeam);
 
-    // 멘토 관제 시스템에 참가팀 등록 (isInitialRegister: true 전달)
+    // 멘토 관제 시스템에 참가팀 등록 (isInitialRegister: !isSameTeamResume)
     try {
-      await fetch('/api/mentor/teams', {
+      const regRes = await fetch('/api/mentor/teams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           teamName: cleanTeam,
           currentStage: 1,
-          isInitialRegister: true,
+          isInitialRegister: !isSameTeamResume,
         }),
       });
+
+      if (!regRes.ok) {
+        const regData = await regRes.json().catch(() => ({}));
+        if (regRes.status === 409 || regData.duplicate) {
+          setError('⚠️ 이미 사용 중인 팀 이름입니다. 다른 팀 이름을 입력해주세요.');
+          setStarting(false);
+          return;
+        }
+      }
     } catch {
       // 오류 시에도 입장 허용
     }
@@ -406,39 +420,18 @@ export default function HomePage() {
           </p>
         )}
 
-        {/* 이전 세션 기록이 감지되었거나 초기화가 필요할 때 버튼 제공 */}
+        {/* 이전 세션 진행 상태 안내 */}
         <div
           style={{
             marginTop: '14px',
             paddingTop: '12px',
             borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '8px',
+            textAlign: 'center',
           }}
         >
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            {m1Done || m2Done ? 'ℹ 해당 팀의 완료 기록이 로드되었습니다.' : '새로운 팀은 1단계부터 시작합니다.'}
+            {m1Done || m2Done ? 'ℹ 해당 팀의 진행 기록이 로드되었습니다. 이어서 진행합니다.' : '새로운 팀은 1단계부터 시작합니다.'}
           </span>
-          <button
-            type="button"
-            onClick={handleResetProgress}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--cyan)',
-              fontSize: '11px',
-              fontFamily: 'var(--font-mono)',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--cyan)')}
-          >
-            🔄 브라우저 전체 기록 &amp; 캐시 초기화
-          </button>
         </div>
       </div>
 

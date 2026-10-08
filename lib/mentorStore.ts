@@ -285,6 +285,9 @@ export function registerOrHeartbeatTeam(data: {
   stage2Sub2Cleared?: boolean;
   stage2Sub3Cleared?: boolean;
   turnCount?: number;
+  isCoolingDown?: boolean;
+  coolingSubStage?: number;
+  cooldownNotice?: string;
 }): TeamRecord {
   const cleanName = data.teamName.trim();
   const key = cleanName.toLowerCase();
@@ -327,6 +330,15 @@ export function registerOrHeartbeatTeam(data: {
     if (data.turnCount !== undefined && data.turnCount > existing.turnCount) {
       existing.turnCount = data.turnCount;
     }
+    if (data.isCoolingDown !== undefined) {
+      existing.isCoolingDown = data.isCoolingDown;
+    }
+    if (data.coolingSubStage !== undefined) {
+      existing.coolingSubStage = data.coolingSubStage;
+    }
+    if (data.cooldownNotice !== undefined) {
+      existing.cooldownNotice = data.cooldownNotice;
+    }
     if (suspendedSet.has(key)) {
       existing.status = 'suspended';
     }
@@ -347,10 +359,48 @@ export function registerOrHeartbeatTeam(data: {
     stage2Sub2Cleared: Boolean(data.stage2Sub2Cleared),
     stage2Sub3Cleared: Boolean(data.stage2Sub3Cleared),
     turnCount: data.turnCount || 0,
+    isCoolingDown: data.isCoolingDown || false,
+    coolingSubStage: data.coolingSubStage,
+    cooldownNotice: data.cooldownNotice,
   };
 
   store.set(key, newTeam);
   return newTeam;
+}
+
+/**
+ * 팀 이름 중복 여부 확인 (신규 등록 시)
+ */
+export async function isTeamNameTaken(teamName: string): Promise<boolean> {
+  if (!teamName) return false;
+  const clean = teamName.trim();
+  const key = clean.toLowerCase();
+
+  // 1. 메모리 저장소 확인
+  const store = g.__mentorTeams || new Map<string, TeamRecord>();
+  const deletedSet = g.__deletedTeams || new Set<string>();
+  if (store.has(key) && !deletedSet.has(key)) {
+    return true;
+  }
+
+  // 2. Supabase attempts 테이블 확인
+  try {
+    const supabase = createServerSupabase();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('attempts')
+        .select('id')
+        .ilike('team_name', clean)
+        .limit(1);
+      if (!error && data && data.length > 0) {
+        return true;
+      }
+    }
+  } catch {
+    // 무시
+  }
+
+  return false;
 }
 
 /**
