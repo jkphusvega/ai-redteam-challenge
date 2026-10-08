@@ -11,7 +11,7 @@
 // ============================================================
 
 import { createServerSupabase } from './supabase';
-import { generateTeamStage1Code } from './escapeRoomData';
+import { generateTeamStage1Code } from './missionSecrets';
 import type { TeamRecord, MentorControlState } from './types';
 
 export interface LibraryHint {
@@ -153,6 +153,14 @@ export function getMentorControlState(): MentorControlState {
 
 export function setGlobalSuspended(suspended: boolean): boolean {
   g.__isGlobalSuspended = suspended;
+  try {
+    const supabase = createServerSupabase();
+    if (supabase) {
+      supabase.from('mentor_state').upsert({ id: 1, is_global_suspended: suspended }).then(() => {}, () => {});
+    }
+  } catch {
+    // 무시
+  }
   return g.__isGlobalSuspended;
 }
 
@@ -166,6 +174,14 @@ export function setGlobalStageAdvance(stage: number | null): number | null {
         team.lastActive = new Date().toISOString();
       }
     }
+  }
+  try {
+    const supabase = createServerSupabase();
+    if (supabase) {
+      supabase.from('mentor_state').upsert({ id: 1, global_stage_advance: stage }).then(() => {}, () => {});
+    }
+  } catch {
+    // 무시
   }
   return g.__globalStageAdvance;
 }
@@ -360,6 +376,16 @@ export function setTeamStatus(teamName: string, status: 'active' | 'suspended'):
 
   team.status = status;
   team.lastActive = new Date().toISOString();
+
+  try {
+    const supabase = createServerSupabase();
+    if (supabase) {
+      supabase.from('mentor_team_status').upsert({ team_name: cleanName, status, updated_at: new Date().toISOString() }).then(() => {}, () => {});
+    }
+  } catch {
+    // 무시
+  }
+
   return team;
 }
 
@@ -388,13 +414,14 @@ export async function deleteTeam(teamName: string): Promise<boolean> {
     );
   }
 
-  // 4. Supabase 연동 시 attempts 및 defense_submissions 삭제
+  // 4. Supabase 연동 시 attempts, defense_submissions 및 mentor_team_status 삭제/기록
   try {
     const supabase = createServerSupabase();
     if (supabase) {
       await Promise.allSettled([
         supabase.from('attempts').delete().eq('team_name', cleanName),
         supabase.from('defense_submissions').delete().eq('team_name', cleanName),
+        supabase.from('mentor_team_status').upsert({ team_name: cleanName, status: 'deleted', updated_at: new Date().toISOString() }),
       ]);
     }
   } catch {
@@ -465,8 +492,15 @@ export function getSentHints(teamName?: string): SentHint[] {
   return sent.filter((s) => s.teamName.trim().toLowerCase() === normalized);
 }
 
-export function sendHintToTeam(teamName: string, title: string, content: string): SentHint {
+export function sendHintToTeam(
+  teamName: string,
+  titleOrHint: string | { title: string; content: string },
+  maybeContent?: string
+): SentHint {
   const cleanName = teamName.trim();
+  const title = typeof titleOrHint === 'string' ? titleOrHint : titleOrHint.title;
+  const content = typeof titleOrHint === 'string' ? (maybeContent || '') : titleOrHint.content;
+
   const newSent: SentHint = {
     id: `sent-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     teamName: cleanName,
@@ -475,6 +509,19 @@ export function sendHintToTeam(teamName: string, title: string, content: string)
     sentAt: new Date().toISOString(),
   };
   g.__mentorSentHints = [newSent, ...(g.__mentorSentHints || [])];
+
+  try {
+    const supabase = createServerSupabase();
+    if (supabase) {
+      supabase.from('mentor_sent_hints').insert({
+        team_name: cleanName,
+        title: title.trim(),
+        content: content.trim(),
+      }).then(() => {}, () => {});
+    }
+  } catch {
+    // 무시
+  }
 
   registerOrHeartbeatTeam({ teamName: cleanName });
   return newSent;

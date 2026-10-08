@@ -163,9 +163,9 @@ export interface TeamRecord {
   stage1SecretCode: string; // 팀별 고유 랜덤 암호
   mission1Cleared: boolean;
   mission2Cleared: boolean;
-  stage2Sub1Cleared?: boolean; // 032
-  stage2Sub2Cleared?: boolean; // 505
-  stage2Sub3Cleared?: boolean; // 9052
+  stage2Sub1Cleared?: boolean; // 서브 2-1 냉각 제어
+  stage2Sub2Cleared?: boolean; // 서브 2-2 방화벽 게이트
+  stage2Sub3Cleared?: boolean; // 서브 2-3 중앙 코어
   turnCount: number;
 }
 

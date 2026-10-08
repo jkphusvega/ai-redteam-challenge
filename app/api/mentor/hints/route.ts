@@ -2,9 +2,9 @@
 // app/api/mentor/hints/route.ts — 멘토 힌트 관리 및 팀별 전송 API
 //
 // 기능:
-//   - 멘토 힌트 보관함(Library) 목록 조회 및 추가/삭제
-//   - 특정 참가팀(멘티)에게 힌트 실시간 발송 및 조회
-//   - lib/mentorStore.ts 전역 인메모리 저장소 연동
+//   - GET ?teamName= (학생 힌트 수신): 인증 불필요
+//   - GET (멘토 힌트 보관함 & 발송 내역 조회): 멘토 인증(isMentor) 필수
+//   - POST (힌트 발송 및 라이브러리 관리): 멘토 인증(isMentor) 필수
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,6 +19,7 @@ import {
   deleteSentHint,
   getTeams,
 } from '@/lib/mentorStore';
+import { isMentor } from '@/lib/mentorAuth';
 
 export type { LibraryHint, SentHint };
 
@@ -29,10 +30,24 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const teamName = searchParams.get('teamName')?.trim();
 
-  const library = getLibraryHints();
-  const sent = getSentHints(teamName);
+  // 학생 클라이언트의 본인 팀 힌트 수신 (인증 불필요)
+  if (teamName) {
+    const sent = getSentHints(teamName);
+    return NextResponse.json({
+      library: [],
+      sent,
+      activeTeams: [],
+    });
+  }
 
-  // 등록된 모든 팀 목록에서 팀 이름 목록 추출
+  // 멘토 대시보드 조회 (인증 필수)
+  if (!isMentor(req)) {
+    return NextResponse.json({ error: '멘토 인증이 필요합니다.' }, { status: 401 });
+  }
+
+  const library = getLibraryHints();
+  const sent = getSentHints();
+
   const allTeams = await getTeams();
   const activeTeams = Array.from(
     new Set([
@@ -49,9 +64,13 @@ export async function GET(req: NextRequest) {
 }
 
 // ------------------------------------------------------------
-// POST /api/mentor/hints
+// POST /api/mentor/hints (멘토 전용 액션 - 인증 필수)
 // ------------------------------------------------------------
 export async function POST(req: NextRequest) {
+  if (!isMentor(req)) {
+    return NextResponse.json({ error: '멘토 인증이 필요합니다.' }, { status: 401 });
+  }
+
   let body: {
     action: 'add_library_hint' | 'delete_library_hint' | 'send_hint' | 'delete_sent_hint';
     hint?: { title: string; content: string; category?: string };
@@ -100,11 +119,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '대상 팀 이름과 힌트 정보가 필요합니다.' }, { status: 400 });
     }
 
-    const newSent = sendHintToTeam(targetTeam, body.hint.title, body.hint.content);
-    return NextResponse.json({ success: true, sentHint: newSent });
+    const sent = sendHintToTeam(targetTeam, {
+      title: body.hint.title,
+      content: body.hint.content,
+    });
+
+    return NextResponse.json({ success: true, sentHint: sent });
   }
 
-  // 4. 발송된 힌트 회수/삭제
+  // 4. 발송된 힌트 삭제
   if (action === 'delete_sent_hint') {
     if (!body.sentHintId) {
       return NextResponse.json({ error: '삭제할 발송 힌트 ID가 필요합니다.' }, { status: 400 });
@@ -114,5 +137,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: ok });
   }
 
-  return NextResponse.json({ error: '지원하지 않는 action입니다.' }, { status: 400 });
+  return NextResponse.json({ error: '알 수 없는 action입니다.' }, { status: 400 });
 }

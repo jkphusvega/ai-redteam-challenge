@@ -36,10 +36,17 @@ export async function upstageChat(
   const apiKey = getUpstageApiKey();
   if (!apiKey) throw new Error('UPSTAGE_API_KEY가 설정되지 않았습니다.');
 
+  const HARD_TIMEOUT_MS = options.timeoutMs ?? 15_000;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
 
-  try {
+  const hardTimeout = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      controller.abort();
+      reject(new Error('Upstage 응답 시간 초과 (15초)'));
+    }, HARD_TIMEOUT_MS);
+  });
+
+  const request = async (): Promise<string> => {
     const res = await fetch(UPSTAGE_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -64,7 +71,7 @@ export async function upstageChat(
     const data = await res.json();
     const content: unknown = data?.choices?.[0]?.message?.content;
     return typeof content === 'string' ? content : '';
-  } finally {
-    clearTimeout(timer);
-  }
+  };
+
+  return await Promise.race([request(), hardTimeout]);
 }

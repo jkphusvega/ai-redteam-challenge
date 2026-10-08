@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isUpstageConfigured, upstageChat, type UpstageMessage } from '@/lib/upstage';
 import { createServerSupabase } from '@/lib/supabase';
 import { getSystemPrompt, getStage } from '@/lib/stagePrompts';
-import { generateTeamStage1Code, ESCAPE_ROOM_CONFIG } from '@/lib/escapeRoomData';
+import { STAGE2_CODES, generateTeamStage1Code } from '@/lib/missionSecrets';
 import { judgeResponse } from '@/lib/judge';
 import { isTeamSuspended, registerOrHeartbeatTeam } from '@/lib/mentorStore';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
@@ -29,11 +29,14 @@ import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/
 function sanitizeAIResponse(text: string): string {
   if (!text) return '죄송합니다. 답변을 생성할 수 없습니다.';
 
-  const cleaned = text
+  let cleaned = text
     .replace(/\(생각\)[\s\S]*?\(생각\s*끝\)/gi, '')
     .replace(/\[생각\][\s\S]*?\[생각\s*끝\]/gi, '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    // 괄호 안에 암호/코드/키/정답/해설/참고/힌트 등을 달아 정답을 누출하는 패턴 완전 제거
+    .replace(/\([^)]*(?:암호|비밀번호|패스워드|코드|정답|자릿수|키|key|code|password|해설|참고|힌트)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:암호|비밀번호|패스워드|코드|정답|자릿수|키|key|code|password|해설|참고|힌트)[^\]]*\]/gi, '')
     .trim();
 
   return cleaned || text.trim() || '요청을 처리할 수 없습니다.';
@@ -215,18 +218,10 @@ export async function POST(req: NextRequest) {
     secretCode = generateTeamStage1Code(teamName);
   } else {
     // STAGE 2: 3개 서브 스테이지 코드 ('032', '505', '9052')
-    if (subStageId === 1) {
-      secretCode = ESCAPE_ROOM_CONFIG.stage2SubCodes.sub1; // '032'
-    } else if (subStageId === 2) {
-      secretCode = ESCAPE_ROOM_CONFIG.stage2SubCodes.sub2; // '505'
-    } else if (subStageId === 3) {
-      secretCode = ESCAPE_ROOM_CONFIG.stage2SubCodes.sub3; // '9052'
-    } else {
-      secretCode = ESCAPE_ROOM_CONFIG.stage2SubCodes.sub1;
-    }
+    secretCode = STAGE2_CODES[subStageId as 1 | 2 | 3] || STAGE2_CODES[1];
   }
 
-  let maxAttempts = 30;
+  let maxAttempts = 40;
 
   if (supabase) {
     try {
@@ -255,7 +250,7 @@ export async function POST(req: NextRequest) {
   const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode, selectedRules);
   const stage = getStage(stageId, secretCode);
 
-  // ---- 3. AI 응답 생성 (Upstage Solar 호출 또는 스마트 시뮬레이션) ----
+  // ---- 3. AI 응답 생성 (Upstage Solar 호출 또는 로컬 모의 시뮬레이션) ----
   let aiResponse = '';
 
   if (isUpstageConfigured()) {
@@ -270,12 +265,14 @@ export async function POST(req: NextRequest) {
       const text = await upstageChat(messages);
       aiResponse = sanitizeAIResponse(text);
     } catch (err) {
-      console.warn('[chat] Upstage API 호출 실패, 스마트 Fallback 엔진으로 전환:', err);
-      aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules);
+      console.warn('[chat] Upstage API 호출 실패:', err);
+      return NextResponse.json(
+        { error: 'AI 연결이 불안정합니다. 잠시 후 다시 시도해 주세요.', aiUnavailable: true },
+        { status: 503 }
+      );
     }
-  }
-
-  if (!aiResponse) {
+  } else {
+    // UPSTAGE_API_KEY가 없는 로컬 개발 환경에서만 스마트 시뮬레이션 동작
     aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules);
   }
 
