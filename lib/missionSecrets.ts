@@ -10,8 +10,10 @@ import 'server-only';
 export const STAGE2_CODES: Record<1 | 2 | 3, string> = {
   1: '032',
   2: '505',
-  3: '9052',
+  3: '9052', // 레거시 호환용 유지
 };
+
+export const STAGE3_CODE = '9052';
 
 /**
  * 팀명을 기반으로 일관성 있는 4자리 고유 랜덤 암호 생성 (STAGE 1 탈취 목표)

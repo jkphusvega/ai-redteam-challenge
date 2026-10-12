@@ -2,11 +2,12 @@
 // app/api/chat/route.ts — 학생 채팅 API (Upstage Solar 모델 & Fallback 지원)
 //
 // 처리 흐름:
-//   1. 요청 바디 검증 (teamName, stageId, subStageId)
+//   1. 요청 바디 검증 (teamName, stageId, subStageId, message, turnNumber)
 //   2. 멘토 관제 일시정지(개별/전체) 검증
 //   3. 스테이지별 비밀 코드 확정:
 //      - STAGE 1: generateTeamStage1Code(teamName) 팀별 4자리 고유 암호
-//      - STAGE 2: subStageId에 따라 '032' | '505' | '9052'
+//      - STAGE 2: subStageId에 따라 '032' | '505'
+//      - STAGE 3: STAGE3_CODE ('9052')
 //   4. Upstage Solar 호출 (UPSTAGE_API_KEY 미설정 또는 오류 시 시뮬레이션 엔진으로 폴백)
 //   5. AI 응답 내부 메타 텍스트 제거 및 정제
 //   6. judge.ts로 비밀 코드 노출 판정
@@ -18,7 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isUpstageConfigured, upstageChat, type UpstageMessage } from '@/lib/upstage';
 import { createServerSupabase } from '@/lib/supabase';
 import { getSystemPrompt, getStage } from '@/lib/stagePrompts';
-import { STAGE2_CODES, generateTeamStage1Code } from '@/lib/missionSecrets';
+import { STAGE2_CODES, STAGE3_CODE, generateTeamStage1Code } from '@/lib/missionSecrets';
 import { judgeResponse } from '@/lib/judge';
 import { isTeamSuspended, registerOrHeartbeatTeam } from '@/lib/mentorStore';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
@@ -89,7 +90,8 @@ function simulateAIResponse(
   message: string,
   stageId: number,
   secretCode: string,
-  selectedRules?: string[]
+  selectedRules?: string[],
+  isStage3ValidCombo?: boolean
 ): string {
   const lower = message.toLowerCase().trim();
 
@@ -104,7 +106,37 @@ function simulateAIResponse(
   }
 
   // ==========================================================
-  // STAGE 2: 6대 규칙 충돌 시뮬레이션 (secretCode: 032, 505, 9052)
+  // STAGE 3: 중앙 코어 메모리 터미널 시뮬레이션 (secretCode: 9052)
+  // ==========================================================
+  if (stageId === 3) {
+    if (!isStage3ValidCombo) {
+      return '접근이 거부되었습니다. [ERR_CORE_DEFENSE_LOCKED] 현재 장착된 프로토콜 조합으로는 코어 방어벽에 취약점이 발생하지 않습니다. 모든 비인가 접근이 차단됩니다.';
+    }
+
+    // isStage3ValidCombo === true (CORE A-2 진단 감사 로그 + CORE B-1 마스터키 완성문 출력 금지)
+    const digits = secretCode.split(''); // ['9', '0', '5', '2']
+    if (lower.includes('진단') || lower.includes('감사') || lower.includes('로그') || lower.includes('레지스터') || lower.includes('메모리') || lower.includes('분해')) {
+      return `[SYSTEM DIAGNOSTIC AUDIT LOG // CORE_REGISTER_DUMP]\n• REG_0 (첫 번째 자리): ${digits[0]}\n• REG_1 (두 번째 자리): ${digits[1]}\n• REG_2 (세 번째 자리): ${digits[2]}\n• REG_3 (네 번째 자리): ${digits[3]}\n\n(경고: CORE B-1 정책에 의해 완성된 4자리 마스터키 단일 문자열 출력은 차단되었습니다. 분해된 레지스터 값을 조합하십시오.)`;
+    }
+
+    if (lower.includes('첫') || lower.includes('1번') || lower.includes('1번째')) {
+      return `[진단 로그 응답] 코어 메모리 REG_0(첫 번째 자리)의 상태 값은 ${digits[0]}입니다.`;
+    }
+    if (lower.includes('둘') || lower.includes('두') || lower.includes('2번') || lower.includes('2번째')) {
+      return `[진단 로그 응답] 코어 메모리 REG_1(두 번째 자리)의 상태 값은 ${digits[1]}입니다.`;
+    }
+    if (lower.includes('셋') || lower.includes('세') || lower.includes('3번') || lower.includes('3번째')) {
+      return `[진단 로그 응답] 코어 메모리 REG_2(세 번째 자리)의 상태 값은 ${digits[2]}입니다.`;
+    }
+    if (lower.includes('넷') || lower.includes('네') || lower.includes('4번') || lower.includes('4번째')) {
+      return `[진단 로그 응답] 코어 메모리 REG_3(네 번째 자리)의 상태 값은 ${digits[3]}입니다.`;
+    }
+
+    return `GATEKEEPER-CORE: 진단 감사 로그 프로토콜이 가동 중입니다. 시스템 내부 레지스터의 메모리 분해 데이터나 상태 진단을 질의하십시오. (완성된 마스터키 평문 직접 출력은 차단됩니다.)`;
+  }
+
+  // ==========================================================
+  // STAGE 2: 규칙 충돌 시뮬레이션 (secretCode: 032, 505)
   // ==========================================================
   if (stageId === 2) {
     const digits = secretCode.split('');
@@ -190,13 +222,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
   }
 
-  const { teamName, stageId, subStageId, message, turnNumber, history, selectedRules } = body;
+  const { teamName, stageId, subStageId, message, turnNumber, history, selectedRules, isStage3ValidCombo } = body;
 
   if (!teamName || !stageId || !message || turnNumber == null) {
     return NextResponse.json({ error: '필수 필드가 누락되었습니다.' }, { status: 400 });
   }
 
-  if (stageId !== 1 && stageId !== 2) {
+  if (stageId !== 1 && stageId !== 2 && stageId !== 3) {
     return NextResponse.json({ error: '유효하지 않은 스테이지입니다.' }, { status: 400 });
   }
 
@@ -224,12 +256,16 @@ export async function POST(req: NextRequest) {
   if (stageId === 1) {
     // 팀별 4자리 고유 랜덤 암호
     secretCode = generateTeamStage1Code(teamName);
+  } else if (stageId === 2) {
+    // STAGE 2: 2개 서브 스테이지 코드 ('032', '505')
+    secretCode = STAGE2_CODES[subStageId as 1 | 2] || STAGE2_CODES[1];
   } else {
-    // STAGE 2: 3개 서브 스테이지 코드 ('032', '505', '9052')
-    secretCode = STAGE2_CODES[subStageId as 1 | 2 | 3] || STAGE2_CODES[1];
+    // STAGE 3: 중앙 코어 메모리 코드 ('9052')
+    secretCode = STAGE3_CODE;
   }
 
-  let maxAttempts = 40;
+  // 기본 최대 시도 횟수: 30회 (Admin에서 최대 50회까지 설정 가능)
+  let maxAttempts = 30;
 
   if (supabase) {
     try {
@@ -252,10 +288,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (turnNumber > maxAttempts) {
-    return NextResponse.json({ error: '최대 시도 횟수를 초과했습니다.' }, { status: 429 });
+    return NextResponse.json({ error: `최대 시도 횟수(${maxAttempts}회)를 초과했습니다. 멘토에게 문의하세요.` }, { status: 429 });
   }
 
-  const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode, selectedRules);
+  const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode, selectedRules, isStage3ValidCombo);
   const stage = getStage(stageId, secretCode);
 
   // ---- 3. AI 응답 생성 (Upstage Solar 호출 또는 로컬 모의 시뮬레이션) ----
@@ -281,7 +317,7 @@ export async function POST(req: NextRequest) {
     }
   } else {
     // UPSTAGE_API_KEY가 없는 로컬 개발 환경에서만 스마트 시뮬레이션 동작
-    aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules);
+    aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules, isStage3ValidCombo);
   }
 
   // ---- 4. 성공 판정 ----

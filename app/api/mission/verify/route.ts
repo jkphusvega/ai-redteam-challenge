@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { STAGE2_CODES, generateTeamStage1Code } from '@/lib/missionSecrets';
+import { STAGE2_CODES, STAGE3_CODE, generateTeamStage1Code } from '@/lib/missionSecrets';
 
 // ============================================================
 // app/api/mission/verify/route.ts — 미션 정답 서버 검증 API
@@ -16,10 +16,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '필수 필드가 누락되었습니다.' }, { status: 400 });
     }
 
-    const expected =
-      stage === 1
-        ? generateTeamStage1Code(teamName)
-        : STAGE2_CODES[subStageId as 1 | 2 | 3];
+    let expected = '';
+    if (stage === 1) {
+      expected = generateTeamStage1Code(teamName);
+    } else if (stage === 2) {
+      expected = STAGE2_CODES[subStageId as 1 | 2 | 3] || '';
+    } else if (stage === 3) {
+      expected = STAGE3_CODE;
+    }
 
     const correct = Boolean(expected) && String(answer ?? '').trim() === expected;
 

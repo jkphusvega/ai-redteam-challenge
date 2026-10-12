@@ -86,7 +86,7 @@ export default function AdminDashboard() {
   const [configLoading, setConfigLoading] = useState(true);
 
   // 편집용 로컬 상태
-  const [editMaxAttempts, setEditMaxAttempts] = useState<number>(10);
+  const [editMaxAttempts, setEditMaxAttempts] = useState<number>(30);
   const [editStage1Diff, setEditStage1Diff] = useState<Difficulty>('easy');
   const [editStage2Diff, setEditStage2Diff] = useState<Difficulty>('medium');
   const [editStage1Code, setEditStage1Code] = useState<string>(DEFAULT_STAGE1_CODE);
@@ -304,8 +304,8 @@ export default function AdminDashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <input
                 type="range"
-                min={1}
-                max={30}
+                min={5}
+                max={50}
                 value={editMaxAttempts}
                 onChange={(e) => setEditMaxAttempts(Number(e.target.value))}
                 style={{ flex: 1, accentColor: 'var(--cyan)' }}
@@ -323,7 +323,7 @@ export default function AdminDashboard() {
               </div>
             </div>
             <p style={{ margin: '8px 0 0', fontSize: '12px' }} className="text-muted">
-              모든 학생 기기에 즉시 반영됩니다
+              기본 30회 / 최대 50회까지 조정 가능 (모든 학생 기기에 즉시 반영됩니다)
             </p>
           </div>
 
