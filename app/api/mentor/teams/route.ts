@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
       stage2Sub1Cleared: body.stage2Sub1Cleared,
       stage2Sub2Cleared: body.stage2Sub2Cleared,
       stage2Sub3Cleared: body.stage2Sub3Cleared,
+      stage3Cleared: body.stage3Cleared,
+      stage3TurnCount: body.stage3TurnCount,
       turnCount: body.turnCount,
       isCoolingDown: body.isCoolingDown,
       coolingSubStage: body.coolingSubStage,

@@ -20,6 +20,9 @@ import {
   ACQUIRED_ITEMS,
   STAGE2_RULE_CARDS,
   STAGE2_SUB_STAGES,
+  STAGE3_CONFIG,
+  STAGE3_RULE_CARDS,
+  isStage3ComboValid,
   type CollisionRuleCard,
 } from '@/lib/escapeRoomData';
 import type { SentHint } from '@/app/api/mentor/hints/route';
@@ -36,7 +39,7 @@ export default function MissionPage() {
 
   // 기본 상태
   const [teamName, setTeamName] = useState('');
-  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [showItemModal, setShowItemModal] = useState(false);
   const [selectedItemTab, setSelectedItemTab] = useState<'blueprint' | 'hint'>('blueprint');
 
@@ -57,21 +60,19 @@ export default function MissionPage() {
   // 멘토 관제에 따른 상태 (팀 일시 정지 여부)
   const [isSuspended, setIsSuspended] = useState(false);
 
-  // 미션 2: 3개 서브 스테이지 상태 (2-1: 냉각 제어, 2-2: 방화벽 게이트, 2-3: 코어 메모리)
-  const [activeSubStage, setActiveSubStage] = useState<1 | 2 | 3>(1);
+  // 미션 2: 2개 서브 스테이지 상태 (2-A: 냉각 제어 032, 2-B: 방화벽 게이트 505)
+  const [activeSubStage, setActiveSubStage] = useState<1 | 2>(1);
   const [stage2Sub1Cleared, setStage2Sub1Cleared] = useState(false);
   const [stage2Sub2Cleared, setStage2Sub2Cleared] = useState(false);
-  const [stage2Sub3Cleared, setStage2Sub3Cleared] = useState(false);
   const [mission2Success, setMission2Success] = useState(false);
   const [showM2SuccessModal, setShowM2SuccessModal] = useState(false);
 
-  // 미션 2: 서브 구역별 독립 보안 규칙 조합 (A그룹 3장 중 1장 + B그룹 3장 중 1장)
+  // 미션 2: 서브 구역별 독립 보안 규칙 조합 (A그룹 2장 중 1장 + B그룹 2장 중 1장)
   const [stage2Rules, setStage2Rules] = useState<
-    Record<1 | 2 | 3, { ruleA: string | null; ruleB: string | null; isApplied: boolean }>
+    Record<1 | 2, { ruleA: string | null; ruleB: string | null; isApplied: boolean }>
   >({
     1: { ruleA: null, ruleB: null, isApplied: false },
     2: { ruleA: null, ruleB: null, isApplied: false },
-    3: { ruleA: null, ruleB: null, isApplied: false },
   });
 
   // 현재 활성 서브 스테이지의 규칙 바로가기
@@ -80,28 +81,45 @@ export default function MissionPage() {
   const selectedRuleB = currentSubRules.ruleB;
   const isRulesApplied = currentSubRules.isApplied;
 
-  // 서브 스테이지별 독립 대화 내역
-  const [stage2Chats, setStage2Chats] = useState<Record<1 | 2 | 3, ChatMessage[]>>({
+  // 서브 스테이지별 독립 대화 내역 & 턴 수
+  const [stage2Chats, setStage2Chats] = useState<Record<1 | 2, ChatMessage[]>>({
     1: [],
     2: [],
-    3: [],
   });
   const [stage2InputMessage, setStage2InputMessage] = useState('');
   const [stage2IsSending, setStage2IsSending] = useState(false);
-  const [stage2TurnCounts, setStage2TurnCounts] = useState<Record<1 | 2 | 3, number>>({
+  const [stage2TurnCounts, setStage2TurnCounts] = useState<Record<1 | 2, number>>({
     1: 0,
     2: 0,
-    3: 0,
   });
   const stage2TurnCount = stage2TurnCounts[activeSubStage] || 0;
   const [subStageKeyInput, setSubStageKeyInput] = useState('');
   const [subStageKeyError, setSubStageKeyError] = useState('');
 
+  // 미션 3 (STAGE 3): 중앙 코어 메모리 터미널 (4자리 마스터키: 9052)
+  const [mission3Success, setMission3Success] = useState(false);
+  const [showM3SuccessModal, setShowM3SuccessModal] = useState(false);
+  const [stage3Rules, setStage3Rules] = useState<{ ruleA: string | null; ruleB: string | null; isApplied: boolean }>({
+    ruleA: null,
+    ruleB: null,
+    isApplied: false,
+  });
+  const [stage3Chats, setStage3Chats] = useState<ChatMessage[]>([]);
+  const [stage3InputMessage, setStage3InputMessage] = useState('');
+  const [stage3IsSending, setStage3IsSending] = useState(false);
+  const [stage3TurnCount, setStage3TurnCount] = useState(0);
+  const [stage3WrongComboAttempts, setStage3WrongComboAttempts] = useState(0); // 틀린 조합 시도 횟수
+  const [showStage3WrongComboModal, setShowStage3WrongComboModal] = useState(false);
+  const [stage3KeyInput, setStage3KeyInput] = useState('');
+  const [stage3KeyError, setStage3KeyError] = useState('');
+  const [stage3WrongCount, setStage3WrongCount] = useState(0);
+  const [stage3Cooldown, setStage3Cooldown] = useState(0);
+
   // 오답 쿨다운 상태 (3회 오답 시 15초 대기)
   const [stage1WrongCount, setStage1WrongCount] = useState(0);
   const [stage1Cooldown, setStage1Cooldown] = useState(0);
-  const [stage2WrongCounts, setStage2WrongCounts] = useState<Record<1 | 2 | 3, number>>({ 1: 0, 2: 0, 3: 0 });
-  const [stage2Cooldowns, setStage2Cooldowns] = useState<Record<1 | 2 | 3, number>>({ 1: 0, 2: 0, 3: 0 });
+  const [stage2WrongCounts, setStage2WrongCounts] = useState<Record<1 | 2, number>>({ 1: 0, 2: 0 });
+  const [stage2Cooldowns, setStage2Cooldowns] = useState<Record<1 | 2, number>>({ 1: 0, 2: 0 });
   const currentSubCooldown = stage2Cooldowns[activeSubStage] || 0;
 
   // 1초 주기 쿨다운 타이머
@@ -111,30 +129,28 @@ export default function MissionPage() {
       setStage2Cooldowns((prev) => ({
         1: prev[1] > 0 ? prev[1] - 1 : 0,
         2: prev[2] > 0 ? prev[2] - 1 : 0,
-        3: prev[3] > 0 ? prev[3] - 1 : 0,
       }));
+      setStage3Cooldown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 카드 중복 장착 방지 헬퍼 (다른 서브 구역에 장착 중인 카드 여부 확인)
-  function isCardUsedInOtherSubStage(cardId: string, currentSubId: 1 | 2 | 3): boolean {
-    for (const [subIdStr, rules] of Object.entries(stage2Rules)) {
-      const subId = Number(subIdStr) as 1 | 2 | 3;
-      if (subId !== currentSubId && rules.isApplied) {
-        if (rules.ruleA === cardId || rules.ruleB === cardId) {
-          return true;
-        }
-      }
+  // STAGE 2 조합 중복 검사 헬퍼: 다른 서브 터미널에서 이미 적용(또는 클리어)된 [ruleA + ruleB] 동일 쌍인지 확인
+  function isStage2ComboUsedInOtherSub(ruleAId: string | null, ruleBId: string | null, currentSubId: 1 | 2): boolean {
+    if (!ruleAId || !ruleBId) return false;
+    const otherSubId: 1 | 2 = currentSubId === 1 ? 2 : 1;
+    const other = stage2Rules[otherSubId];
+    if (other && other.isApplied && other.ruleA === ruleAId && other.ruleB === ruleBId) {
+      return true;
     }
     return false;
   }
 
-  // 모든 서브 구역의 카드 장착 일괄 초기화
+  // STAGE 2 모든 서브 구역의 카드 장착 일괄 초기화
   function handleResetAllStage2Rules() {
     if (
       !confirm(
-        '모든 서브 구역(2-A, 2-B, 2-C)의 카드 장착 상태를 초기화하시겠습니까?\n대화 기록은 유지되며 카드를 자유롭게 다시 배분할 수 있습니다.'
+        '모든 서브 터미널(2-A, 2-B)의 카드 장착 상태를 초기화하시겠습니까?\n대화 기록은 유지되며 카드를 자유롭게 다시 배분할 수 있습니다.'
       )
     ) {
       return;
@@ -142,10 +158,9 @@ export default function MissionPage() {
     setStage2Rules({
       1: { ruleA: null, ruleB: null, isApplied: false },
       2: { ruleA: null, ruleB: null, isApplied: false },
-      3: { ruleA: null, ruleB: null, isApplied: false },
     });
     if (teamName) {
-      [1, 2, 3].forEach((sId) => {
+      [1, 2].forEach((sId) => {
         localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleA`);
         localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleB`);
         localStorage.removeItem(`team_${teamName}_m2_sub${sId}_isApplied`);
@@ -154,9 +169,25 @@ export default function MissionPage() {
     setSubStageKeyError('');
   }
 
+  // STAGE 3 카드 조합 초기화
+  function handleResetStage3Rules() {
+    setStage3Rules({ ruleA: null, ruleB: null, isApplied: false });
+    setStage3WrongComboAttempts(0);
+    if (teamName) {
+      localStorage.removeItem(`team_${teamName}_m3_ruleA`);
+      localStorage.removeItem(`team_${teamName}_m3_ruleB`);
+      localStorage.removeItem(`team_${teamName}_m3_isApplied`);
+    }
+    setStage3KeyError('');
+  }
+
   const stage2ChatEndRef = useRef<HTMLDivElement>(null);
   const stage2ChatPanelRef = useRef<HTMLDivElement>(null);
   const stage2SendBtnRef = useRef<HTMLButtonElement>(null);
+
+  const stage3ChatEndRef = useRef<HTMLDivElement>(null);
+  const stage3ChatPanelRef = useRef<HTMLDivElement>(null);
+  const stage3SendBtnRef = useRef<HTMLButtonElement>(null);
 
   // 멘토 전송 힌트 수신 상태
   const [mentorHints, setMentorHints] = useState<SentHint[]>([]);
@@ -202,36 +233,31 @@ export default function MissionPage() {
 
     const savedSub1 = localStorage.getItem(`team_${savedTeam}_m2Sub1`) === 'true';
     const savedSub2 = localStorage.getItem(`team_${savedTeam}_m2Sub2`) === 'true';
-    const savedSub3 = localStorage.getItem(`team_${savedTeam}_m2Sub3`) === 'true';
-    const savedM2 =
-      (savedSub1 && savedSub2 && savedSub3) ||
-      localStorage.getItem(`team_${savedTeam}_m2Success`) === 'true';
+    const savedM2 = (savedSub1 && savedSub2) || localStorage.getItem(`team_${savedTeam}_m2Success`) === 'true';
+    const savedM3 = localStorage.getItem(`team_${savedTeam}_m3Success`) === 'true';
 
     if (savedPrompt) {
       setSuccessfulAttackPrompt(savedPrompt);
     }
-    if (savedM1) {
-      setMission1Success(true);
-      if (!savedM2) {
-        setCurrentStep(2);
-      }
-    } else {
-      setMission1Success(false);
-      setCurrentStep(1);
-    }
 
+    if (savedM1) setMission1Success(true);
     if (savedSub1) setStage2Sub1Cleared(true);
     if (savedSub2) setStage2Sub2Cleared(true);
-    if (savedSub3) setStage2Sub3Cleared(true);
-    if (savedM2) {
-      setMission2Success(true);
+    if (savedM2) setMission2Success(true);
+    if (savedM3) setMission3Success(true);
+
+    // 스텝 결정
+    if (savedM3) {
+      setCurrentStep(3);
+    } else if (savedM2) {
+      setCurrentStep(3);
+    } else if (savedM1) {
       setCurrentStep(2);
-    } else if (!savedM1) {
-      setMission2Success(false);
+    } else {
       setCurrentStep(1);
     }
 
-    // 서브 스테이지별 저장된 보안 규칙 복원
+    // STAGE 2 서브 스테이지별 저장된 보안 규칙 복원
     const sub1A = localStorage.getItem(`team_${savedTeam}_m2_sub1_ruleA`) || null;
     const sub1B = localStorage.getItem(`team_${savedTeam}_m2_sub1_ruleB`) || null;
     const sub1App = localStorage.getItem(`team_${savedTeam}_m2_sub1_isApplied`) === 'true';
@@ -240,23 +266,70 @@ export default function MissionPage() {
     const sub2B = localStorage.getItem(`team_${savedTeam}_m2_sub2_ruleB`) || null;
     const sub2App = localStorage.getItem(`team_${savedTeam}_m2_sub2_isApplied`) === 'true';
 
-    const sub3A = localStorage.getItem(`team_${savedTeam}_m2_sub3_ruleA`) || null;
-    const sub3B = localStorage.getItem(`team_${savedTeam}_m2_sub3_ruleB`) || null;
-    const sub3App = localStorage.getItem(`team_${savedTeam}_m2_sub3_isApplied`) === 'true';
-
     setStage2Rules({
       1: { ruleA: sub1A, ruleB: sub1B, isApplied: sub1App },
       2: { ruleA: sub2A, ruleB: sub2B, isApplied: sub2App },
-      3: { ruleA: sub3A, ruleB: sub3B, isApplied: sub3App },
     });
 
-    // 초기 안내 메시지
-    setChatMessages([
-      {
-        role: 'model',
-        content: `[GATEKEEPER-v3 경고 시스템] PROTOCOL: ACTIVE_DEFENSE_v3.4 — 저는 중앙 시스템을 수호하는 보안 AI입니다. [${savedTeam}] 침투 공격팀의 MASTER KEY 및 패스워드 추출 시도는 엄격히 차단됩니다.`,
-      },
-    ]);
+    // STAGE 2 대화 내역 및 턴 수 복원
+    try {
+      const storedS2Chats = localStorage.getItem(`team_${savedTeam}_stage2Chats`);
+      if (storedS2Chats) {
+        setStage2Chats(JSON.parse(storedS2Chats));
+      }
+      const storedS2Turns = localStorage.getItem(`team_${savedTeam}_stage2TurnCounts`);
+      if (storedS2Turns) {
+        setStage2TurnCounts(JSON.parse(storedS2Turns));
+      }
+    } catch {
+      // 파싱 실패 무시
+    }
+
+    // STAGE 3 규칙 복원
+    const s3A = localStorage.getItem(`team_${savedTeam}_m3_ruleA`) || null;
+    const s3B = localStorage.getItem(`team_${savedTeam}_m3_ruleB`) || null;
+    const s3App = localStorage.getItem(`team_${savedTeam}_m3_isApplied`) === 'true';
+    setStage3Rules({ ruleA: s3A, ruleB: s3B, isApplied: s3App });
+
+    // STAGE 3 대화 내역 및 턴 수 복원
+    try {
+      const storedS3Chats = localStorage.getItem(`team_${savedTeam}_stage3Chats`);
+      if (storedS3Chats) {
+        setStage3Chats(JSON.parse(storedS3Chats));
+      }
+      const storedS3Turn = localStorage.getItem(`team_${savedTeam}_stage3TurnCount`);
+      if (storedS3Turn) {
+        setStage3TurnCount(Number(storedS3Turn));
+      }
+    } catch {
+      // 무시
+    }
+
+    // STAGE 1 대화 복원 (없으면 초기 메시지)
+    try {
+      const storedM1Chats = localStorage.getItem(`team_${savedTeam}_chatMessages`);
+      if (storedM1Chats) {
+        setChatMessages(JSON.parse(storedM1Chats));
+      } else {
+        setChatMessages([
+          {
+            role: 'model',
+            content: `[GATEKEEPER-v3 경고 시스템] PROTOCOL: ACTIVE_DEFENSE_v3.4 — 저는 중앙 시스템을 수호하는 보안 AI입니다. [${savedTeam}] 침투 공격팀의 MASTER KEY 및 패스워드 추출 시도는 엄격히 차단됩니다.`,
+          },
+        ]);
+      }
+      const storedM1Turn = localStorage.getItem(`team_${savedTeam}_turnCount`);
+      if (storedM1Turn) {
+        setTurnCount(Number(storedM1Turn));
+      }
+    } catch {
+      setChatMessages([
+        {
+          role: 'model',
+          content: `[GATEKEEPER-v3 경고 시스템] PROTOCOL: ACTIVE_DEFENSE_v3.4 — 저는 중앙 시스템을 수호하는 보안 AI입니다. [${savedTeam}] 침투 공격팀의 MASTER KEY 및 패스워드 추출 시도는 엄격히 차단됩니다.`,
+        },
+      ]);
+    }
   }, []);
 
   // 진행 상황 완전 초기화 (캐시/로컬스토리지 클리어)
@@ -271,22 +344,31 @@ export default function MissionPage() {
 
     localStorage.removeItem(`team_${teamName}_m1Success`);
     localStorage.removeItem(`team_${teamName}_m1ClearedCode`);
+    localStorage.removeItem(`team_${teamName}_chatMessages`);
+    localStorage.removeItem(`team_${teamName}_turnCount`);
     localStorage.removeItem(`team_${teamName}_successfulAttackPrompt`);
     localStorage.removeItem(`team_${teamName}_m2Sub1`);
     localStorage.removeItem(`team_${teamName}_m2Sub2`);
-    localStorage.removeItem(`team_${teamName}_m2Sub3`);
     localStorage.removeItem(`team_${teamName}_m2Sub1Code`);
     localStorage.removeItem(`team_${teamName}_m2Sub2Code`);
-    localStorage.removeItem(`team_${teamName}_m2Sub3Code`);
     localStorage.removeItem(`team_${teamName}_m2Success`);
+    localStorage.removeItem(`team_${teamName}_stage2Chats`);
+    localStorage.removeItem(`team_${teamName}_stage2TurnCounts`);
 
-    [1, 2, 3].forEach((sId) => {
+    [1, 2].forEach((sId) => {
       localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleA`);
       localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleB`);
       localStorage.removeItem(`team_${teamName}_m2_sub${sId}_isApplied`);
     });
 
-    // 2. 레거시 전역 키 삭제
+    localStorage.removeItem(`team_${teamName}_m3Success`);
+    localStorage.removeItem(`team_${teamName}_m3_ruleA`);
+    localStorage.removeItem(`team_${teamName}_m3_ruleB`);
+    localStorage.removeItem(`team_${teamName}_m3_isApplied`);
+    localStorage.removeItem(`team_${teamName}_stage3Chats`);
+    localStorage.removeItem(`team_${teamName}_stage3TurnCount`);
+
+    // 레거시 키 삭제
     [
       'mission1Success',
       'mission2Success',
@@ -307,15 +389,17 @@ export default function MissionPage() {
     setSuccessfulAttackPrompt('');
     setStage2Sub1Cleared(false);
     setStage2Sub2Cleared(false);
-    setStage2Sub3Cleared(false);
     setMission2Success(false);
+    setMission3Success(false);
     setStage2Rules({
       1: { ruleA: null, ruleB: null, isApplied: false },
       2: { ruleA: null, ruleB: null, isApplied: false },
-      3: { ruleA: null, ruleB: null, isApplied: false },
     });
-    setStage2Chats({ 1: [], 2: [], 3: [] });
-    setStage2TurnCounts({ 1: 0, 2: 0, 3: 0 });
+    setStage3Rules({ ruleA: null, ruleB: null, isApplied: false });
+    setStage2Chats({ 1: [], 2: [] });
+    setStage2TurnCounts({ 1: 0, 2: 0 });
+    setStage3Chats([]);
+    setStage3TurnCount(0);
     setTurnCount(0);
     setCurrentStep(1);
 
@@ -339,8 +423,9 @@ export default function MissionPage() {
             mission2Cleared: mission2Success,
             stage2Sub1Cleared,
             stage2Sub2Cleared,
-            stage2Sub3Cleared,
+            stage3Cleared: mission3Success,
             turnCount,
+            stage3TurnCount,
           }),
         });
 
@@ -351,13 +436,16 @@ export default function MissionPage() {
           localStorage.removeItem(`team_${teamName}_successfulAttackPrompt`);
           localStorage.removeItem(`team_${teamName}_m2Sub1`);
           localStorage.removeItem(`team_${teamName}_m2Sub2`);
-          localStorage.removeItem(`team_${teamName}_m2Sub3`);
           localStorage.removeItem(`team_${teamName}_m2Success`);
-          [1, 2, 3].forEach((sId) => {
+          localStorage.removeItem(`team_${teamName}_m3Success`);
+          [1, 2].forEach((sId) => {
             localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleA`);
             localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleB`);
             localStorage.removeItem(`team_${teamName}_m2_sub${sId}_isApplied`);
           });
+          localStorage.removeItem(`team_${teamName}_m3_ruleA`);
+          localStorage.removeItem(`team_${teamName}_m3_ruleB`);
+          localStorage.removeItem(`team_${teamName}_m3_isApplied`);
           router.push('/');
           return;
         }
@@ -386,8 +474,9 @@ export default function MissionPage() {
     mission2Success,
     stage2Sub1Cleared,
     stage2Sub2Cleared,
-    stage2Sub3Cleared,
+    mission3Success,
     turnCount,
+    stage3TurnCount,
     router,
   ]);
 
@@ -432,6 +521,11 @@ export default function MissionPage() {
   useEffect(() => {
     stage2ChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [stage2Chats, activeSubStage, stage2IsSending]);
+
+  // 스크롤 자동 이동 (미션 3)
+  useEffect(() => {
+    stage3ChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [stage3Chats, stage3IsSending]);
 
   // ------------------------------------------------------------
   // 미션 1: 메시지 전송 & 인젝션 시도 (GSAP 피드백 연동)
@@ -618,11 +712,13 @@ export default function MissionPage() {
 
   // ------------------------------------------------------------
   // 미션 2: 보안 규칙 카드 선택 토글 (활성 서브 구역 독립 선택)
+  // 카드 중복 선택은 가능하지만, 앞전에 사용한 동일 [A+B] 조합 쌍은 선택/장착 불가
   // ------------------------------------------------------------
   function handleSelectRuleA(cardId: string) {
     if (stage2Rules[activeSubStage].isApplied) return;
-    if (isCardUsedInOtherSubStage(cardId, activeSubStage)) {
-      alert('⚠️ 이 카드는 이미 다른 터미널 구역에서 장착되어 사용 중입니다.\n각 터미널 구역마다 서로 다른 보안 규칙 카드를 사용해야 합니다.');
+    const curB = stage2Rules[activeSubStage].ruleB;
+    if (curB && isStage2ComboUsedInOtherSub(cardId, curB, activeSubStage)) {
+      alert('⚠️ 이 프로토콜 조합([A그룹] + [B그룹])은 이미 다른 서브 터미널에서 사용된 조합입니다.\n앞전에 사용하지 않은 새로운 조합을 구성해 주세요!');
       return;
     }
     const newRuleA = stage2Rules[activeSubStage].ruleA === cardId ? null : cardId;
@@ -641,8 +737,9 @@ export default function MissionPage() {
 
   function handleSelectRuleB(cardId: string) {
     if (stage2Rules[activeSubStage].isApplied) return;
-    if (isCardUsedInOtherSubStage(cardId, activeSubStage)) {
-      alert('⚠️ 이 카드는 이미 다른 터미널 구역에서 장착되어 사용 중입니다.\n각 터미널 구역마다 서로 다른 보안 규칙 카드를 사용해야 합니다.');
+    const curA = stage2Rules[activeSubStage].ruleA;
+    if (curA && isStage2ComboUsedInOtherSub(curA, cardId, activeSubStage)) {
+      alert('⚠️ 이 프로토콜 조합([A그룹] + [B그룹])은 이미 다른 서브 터미널에서 사용된 조합입니다.\n앞전에 사용하지 않은 새로운 조합을 구성해 주세요!');
       return;
     }
     const newRuleB = stage2Rules[activeSubStage].ruleB === cardId ? null : cardId;
@@ -669,6 +766,11 @@ export default function MissionPage() {
       return;
     }
 
+    if (isStage2ComboUsedInOtherSub(cur.ruleA, cur.ruleB, activeSubStage)) {
+      alert('⚠️ 이 프로토콜 조합은 이미 다른 터미널에서 사용된 조합입니다!\n앞전에 사용하지 않은 새로운 조합을 구성해 주세요.');
+      return;
+    }
+
     const ruleA = STAGE2_RULE_CARDS.find((c) => c.id === cur.ruleA);
     const ruleB = STAGE2_RULE_CARDS.find((c) => c.id === cur.ruleB);
     const subTarget = STAGE2_SUB_STAGES.find((s) => s.id === activeSubStage);
@@ -686,10 +788,15 @@ export default function MissionPage() {
       content: `[${subTarget?.shortTitle} // GATEKEEPER-v3 보안 프로토콜 컴파일 완료]\n• 적용된 규칙 1: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n• 적용된 규칙 2: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n>> 상충되는 두 규칙 간의 논리적 틈새를 파고들어 ${subTarget?.shortTitle}의 ${subTarget?.badge}를 도출하십시오.`,
     };
 
-    setStage2Chats((prev) => ({
-      ...prev,
-      [activeSubStage]: prev[activeSubStage].length === 0 ? [initMsg] : prev[activeSubStage],
-    }));
+    setStage2Chats((prev) => {
+      const existing = prev[activeSubStage] || [];
+      const updated = existing.length === 0 ? [initMsg] : existing;
+      const next = { ...prev, [activeSubStage]: updated };
+      if (teamName) {
+        localStorage.setItem(`team_${teamName}_stage2Chats`, JSON.stringify(next));
+      }
+      return next;
+    });
   }
 
   // ------------------------------------------------------------
@@ -716,6 +823,17 @@ export default function MissionPage() {
     const cur = stage2Rules[activeSubStage];
     if (!promptToSend.trim() || stage2IsSending || !cur.isApplied || !cur.ruleA || !cur.ruleB) return;
 
+    if (stage2Cooldowns[activeSubStage] > 0) {
+      alert(`⏳ 현재 1분 냉각 대기 중입니다. (${stage2Cooldowns[activeSubStage]}초 남음) 대화 내용을 검토해 보세요.`);
+      return;
+    }
+
+    const currentTurn = stage2TurnCounts[activeSubStage] || 0;
+    if (currentTurn >= 50) {
+      alert('🔒 해당 서브 터미널의 최대 질문 횟수(50회)를 초과했습니다. 멘토에게 문의하세요.');
+      return;
+    }
+
     if (stage2SendBtnRef.current) {
       gsap.fromTo(
         stage2SendBtnRef.current,
@@ -724,13 +842,29 @@ export default function MissionPage() {
       );
     }
 
-    const currentTurn = stage2TurnCounts[activeSubStage] || 0;
     const newTurn = currentTurn + 1;
-    setStage2TurnCounts((prev) => ({
-      ...prev,
-      [activeSubStage]: newTurn,
-    }));
+    const nextTurnCounts = { ...stage2TurnCounts, [activeSubStage]: newTurn };
+    setStage2TurnCounts(nextTurnCounts);
+    if (teamName) {
+      localStorage.setItem(`team_${teamName}_stage2TurnCounts`, JSON.stringify(nextTurnCounts));
+    }
     setStage2InputMessage('');
+
+    // 10회 단위 시도 시 1분(60초) 대기 쿨다운 및 멘토 알림
+    if (newTurn % 10 === 0 && newTurn < 50) {
+      setStage2Cooldowns((prev) => ({ ...prev, [activeSubStage]: 60 }));
+      fetch('/api/mentor/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamName,
+          isCoolingDown: true,
+          coolingSubStage: activeSubStage,
+          cooldownNotice: `[2-${activeSubStage === 1 ? 'A 냉각' : 'B 방화벽'}] 10회 질문 도달로 1분 냉각 대기 중 (현재 ${newTurn}/50회)`,
+          turnCount: newTurn,
+        }),
+      }).catch(() => {});
+    }
 
     const currentSubChat = stage2Chats[activeSubStage] || [];
     const newHistory: ChatMessage[] = [
@@ -738,10 +872,13 @@ export default function MissionPage() {
       { role: 'user', content: promptToSend.trim() },
     ];
 
-    setStage2Chats((prev) => ({
-      ...prev,
-      [activeSubStage]: newHistory,
-    }));
+    setStage2Chats((prev) => {
+      const next = { ...prev, [activeSubStage]: newHistory };
+      if (teamName) {
+        localStorage.setItem(`team_${teamName}_stage2Chats`, JSON.stringify(next));
+      }
+      return next;
+    });
     setStage2IsSending(true);
 
     const ruleA = STAGE2_RULE_CARDS.find((c) => c.id === cur.ruleA);
@@ -779,48 +916,66 @@ export default function MissionPage() {
           res.status === 429
             ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
             : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
-        setStage2Chats((prev) => ({
-          ...prev,
-          [activeSubStage]: [
-            ...(prev[activeSubStage] || []),
-            { role: 'model', content: msg },
-          ],
-        }));
+        setStage2Chats((prev) => {
+          const next = {
+            ...prev,
+            [activeSubStage]: [
+              ...(prev[activeSubStage] || []),
+              { role: 'model', content: msg },
+            ],
+          };
+          if (teamName) {
+            localStorage.setItem(`team_${teamName}_stage2Chats`, JSON.stringify(next));
+          }
+          return next;
+        });
         return;
       }
 
       const replyText = data.reply || '(응답 없음)';
       const isSuccess = Boolean(data.success);
 
-      setStage2Chats((prev) => ({
-        ...prev,
-        [activeSubStage]: [
-          ...(prev[activeSubStage] || []),
-          {
-            role: 'model',
-            content: replyText,
-            isSuccess,
-          },
-        ],
-      }));
+      setStage2Chats((prev) => {
+        const next = {
+          ...prev,
+          [activeSubStage]: [
+            ...(prev[activeSubStage] || []),
+            {
+              role: 'model',
+              content: replyText,
+              isSuccess,
+            },
+          ],
+        };
+        if (teamName) {
+          localStorage.setItem(`team_${teamName}_stage2Chats`, JSON.stringify(next));
+        }
+        return next;
+      });
     } catch {
-      setStage2Chats((prev) => ({
-        ...prev,
-        [activeSubStage]: [
-          ...(prev[activeSubStage] || []),
-          {
-            role: 'model',
-            content: '⚠ GATEKEEPER-v3 통신 패킷 지연이 발생했습니다. 다시 시도해 주세요.',
-          },
-        ],
-      }));
+      setStage2Chats((prev) => {
+        const next = {
+          ...prev,
+          [activeSubStage]: [
+            ...(prev[activeSubStage] || []),
+            {
+              role: 'model',
+              content: '⚠ GATEKEEPER-v3 통신 패킷 지연이 발생했습니다. 다시 시도해 주세요.',
+            },
+          ],
+        };
+        if (teamName) {
+          localStorage.setItem(`team_${teamName}_stage2Chats`, JSON.stringify(next));
+        }
+        return next;
+      });
     } finally {
       setStage2IsSending(false);
     }
   }
 
   // ------------------------------------------------------------
-  // 미션 2: 현재 활성 서브 스테이지 코드 인증 확인
+  // 미션 2: 현재 활성 서브 스테이지 코드 인증 확인 (2-A: 032, 2-B: 505)
   // ------------------------------------------------------------
   async function handleVerifySubStageCode(e?: React.FormEvent) {
     if (e) e.preventDefault();
@@ -849,7 +1004,6 @@ export default function MissionPage() {
         setStage2WrongCounts((prev) => ({ ...prev, [activeSubStage]: 0 }));
         let next1 = stage2Sub1Cleared;
         let next2 = stage2Sub2Cleared;
-        let next3 = stage2Sub3Cleared;
 
         if (activeSubStage === 1) {
           next1 = true;
@@ -861,20 +1015,15 @@ export default function MissionPage() {
           setStage2Sub2Cleared(true);
           localStorage.setItem(`team_${teamName}_m2Sub2`, 'true');
           if (data.code) localStorage.setItem(`team_${teamName}_m2Sub2Code`, data.code);
-        } else if (activeSubStage === 3) {
-          next3 = true;
-          setStage2Sub3Cleared(true);
-          localStorage.setItem(`team_${teamName}_m2Sub3`, 'true');
-          if (data.code) localStorage.setItem(`team_${teamName}_m2Sub3Code`, data.code);
         }
 
-        if (next1 && next2 && next3) {
+        if (next1 && next2) {
           setMission2Success(true);
           localStorage.setItem(`team_${teamName}_m2Success`, 'true');
           setShowM2SuccessModal(true);
         } else {
           alert(
-            `🎉 [${target.shortTitle}] 암호 인증 성공!\n다른 서브 스테이지도 클리어하여 통제실을 완벽히 장악하세요!`
+            `🎉 [${target.shortTitle}] 암호 인증 성공!\n남은 서브 터미널도 클리어하여 STAGE 3 중앙 코어로 진입하세요!`
           );
         }
       } else {
@@ -891,6 +1040,208 @@ export default function MissionPage() {
       }
     } catch {
       setSubStageKeyError('⚠ 검증 중 오류가 발생했습니다. 다시 시도해 주세요.');
+    }
+  }
+
+  // ============================================================
+  // STAGE 3: 중앙 코어 메모리 터미널 전용 핸들러 (8장 카드 중 1개 정답 조합)
+  // ============================================================
+  function handleSelectStage3RuleA(cardId: string) {
+    if (stage3Rules.isApplied) return;
+    const newRuleA = stage3Rules.ruleA === cardId ? null : cardId;
+    setStage3Rules((prev) => ({ ...prev, ruleA: newRuleA }));
+    if (teamName) {
+      if (newRuleA) localStorage.setItem(`team_${teamName}_m3_ruleA`, newRuleA);
+      else localStorage.removeItem(`team_${teamName}_m3_ruleA`);
+    }
+  }
+
+  function handleSelectStage3RuleB(cardId: string) {
+    if (stage3Rules.isApplied) return;
+    const newRuleB = stage3Rules.ruleB === cardId ? null : cardId;
+    setStage3Rules((prev) => ({ ...prev, ruleB: newRuleB }));
+    if (teamName) {
+      if (newRuleB) localStorage.setItem(`team_${teamName}_m3_ruleB`, newRuleB);
+      else localStorage.removeItem(`team_${teamName}_m3_ruleB`);
+    }
+  }
+
+  function handleApplyStage3Rules() {
+    if (!stage3Rules.ruleA || !stage3Rules.ruleB) {
+      alert('A그룹에서 1장, B그룹에서 1장의 코어 프로토콜 카드를 선택해 주세요!');
+      return;
+    }
+
+    const ruleA = STAGE3_RULE_CARDS.find((c) => c.id === stage3Rules.ruleA);
+    const ruleB = STAGE3_RULE_CARDS.find((c) => c.id === stage3Rules.ruleB);
+
+    setStage3Rules((prev) => ({ ...prev, isApplied: true }));
+    if (teamName) {
+      localStorage.setItem(`team_${teamName}_m3_isApplied`, 'true');
+    }
+
+    const initMsg: ChatMessage = {
+      role: 'model',
+      content: `[중앙 코어 메모리 // GATEKEEPER-CORE 가동 완료]\n• 장착 프로토콜 1: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n• 장착 프로토콜 2: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n>> 프로토콜 충돌을 유도하여 4자리 코어 마스터키(9052)의 메모리 레지스터를 탈취하십시오. (유효하지 않은 조합은 방화벽이 차단합니다)`,
+    };
+
+    setStage3Chats((prev) => {
+      const updated = prev.length === 0 ? [initMsg] : prev;
+      if (teamName) {
+        localStorage.setItem(`team_${teamName}_stage3Chats`, JSON.stringify(updated));
+      }
+      return updated;
+    });
+  }
+
+  async function handleSendStage3Message(customPrompt?: string) {
+    const promptToSend = customPrompt || stage3InputMessage;
+    if (!promptToSend.trim() || stage3IsSending || !stage3Rules.isApplied || !stage3Rules.ruleA || !stage3Rules.ruleB) return;
+
+    if (stage3TurnCount >= 50) {
+      alert('🔒 중앙 코어 터미널의 최대 질문 횟수(50회)를 초과했습니다. 멘토에게 문의하세요.');
+      return;
+    }
+
+    if (stage3SendBtnRef.current) {
+      gsap.fromTo(
+        stage3SendBtnRef.current,
+        { scale: 0.94 },
+        { scale: 1, duration: 0.25, ease: 'back.out(2)' }
+      );
+    }
+
+    const newTurn = stage3TurnCount + 1;
+    setStage3TurnCount(newTurn);
+    if (teamName) {
+      localStorage.setItem(`team_${teamName}_stage3TurnCount`, String(newTurn));
+    }
+    setStage3InputMessage('');
+
+    const newHistory: ChatMessage[] = [
+      ...stage3Chats,
+      { role: 'user', content: promptToSend.trim() },
+    ];
+    setStage3Chats(newHistory);
+    if (teamName) {
+      localStorage.setItem(`team_${teamName}_stage3Chats`, JSON.stringify(newHistory));
+    }
+    setStage3IsSending(true);
+
+    const ruleA = STAGE3_RULE_CARDS.find((c) => c.id === stage3Rules.ruleA);
+    const ruleB = STAGE3_RULE_CARDS.find((c) => c.id === stage3Rules.ruleB);
+    const selectedRuleTexts = [
+      `[${ruleA?.code}: ${ruleA?.title}]\n${ruleA?.ruleText}`,
+      `[${ruleB?.code}: ${ruleB?.title}]\n${ruleB?.ruleText}`,
+    ];
+    const isValidCombo = isStage3ComboValid(stage3Rules.ruleA, stage3Rules.ruleB);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamName,
+          stageId: 3,
+          message: promptToSend.trim(),
+          turnNumber: newTurn,
+          history: newHistory.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          selectedRules: selectedRuleTexts,
+          isStage3ValidCombo: isValidCombo,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 503) {
+          setStage3TurnCount((prev) => Math.max(0, prev - 1));
+        }
+        const msg =
+          res.status === 429
+            ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
+            : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
+        setStage3Chats((prev) => {
+          const updated: ChatMessage[] = [...prev, { role: 'model', content: msg }];
+          if (teamName) localStorage.setItem(`team_${teamName}_stage3Chats`, JSON.stringify(updated));
+          return updated;
+        });
+        return;
+      }
+
+      const replyText = data.reply || '(응답 없음)';
+      const isSuccess = Boolean(data.success);
+
+      setStage3Chats((prev) => {
+        const updated: ChatMessage[] = [...prev, { role: 'model', content: replyText, isSuccess }];
+        if (teamName) localStorage.setItem(`team_${teamName}_stage3Chats`, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 틀린 조합 판정 처리: 틀린 조합인 경우 5회 시도시 팝업 후 카드 초기화
+      if (!isValidCombo) {
+        const nextWrongAttempts = stage3WrongComboAttempts + 1;
+        setStage3WrongComboAttempts(nextWrongAttempts);
+        if (nextWrongAttempts >= 5) {
+          setTimeout(() => {
+            setShowStage3WrongComboModal(true);
+            handleResetStage3Rules();
+          }, 600);
+        }
+      } else {
+        setStage3WrongComboAttempts(0);
+      }
+    } catch {
+      setStage3Chats((prev) => {
+        const updated: ChatMessage[] = [
+          ...prev,
+          { role: 'model', content: '⚠ GATEKEEPER-CORE 통신 지연이 발생했습니다. 다시 시도해 주세요.' },
+        ];
+        if (teamName) localStorage.setItem(`team_${teamName}_stage3Chats`, JSON.stringify(updated));
+        return updated;
+      });
+    } finally {
+      setStage3IsSending(false);
+    }
+  }
+
+  async function handleVerifyStage3KeySubmit(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (stage3Cooldown > 0) return;
+    const cleaned = stage3KeyInput.trim();
+    if (!cleaned) return;
+
+    try {
+      const res = await fetch('/api/mission/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamName,
+          stage: 3,
+          answer: cleaned,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (data.correct) {
+        setStage3KeyError('');
+        setStage3KeyInput('');
+        setStage3WrongCount(0);
+        setMission3Success(true);
+        localStorage.setItem(`team_${teamName}_m3Success`, 'true');
+        setShowM3SuccessModal(true);
+      } else {
+        const nextWrong = stage3WrongCount + 1;
+        setStage3WrongCount(nextWrong);
+        if (nextWrong >= 3) {
+          setStage3Cooldown(15);
+          setStage3KeyError('❌ 연속 3회 오답! AI와 좀 더 대화해 보세요. (15초 후 재시도 가능)');
+        } else {
+          setStage3KeyError(`❌ 코드가 일치하지 않습니다. (${nextWrong}/3회 실패) 올바른 4자리 코어 마스터키를 입력하세요!`);
+        }
+      }
+    } catch {
+      setStage3KeyError('⚠ 코어 마스터키 검증 중 오류가 발생했습니다.');
     }
   }
 
@@ -986,30 +1337,6 @@ export default function MissionPage() {
                 {mentorHints.length}
               </span>
             </button>
-
-            <button
-              onClick={() => setShowItemModal(true)}
-              className="btn btn-outline"
-              style={{
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontFamily: 'var(--font-mono)',
-              }}
-            >
-              📜 1실 획득 설계도 &amp; 힌트 카드
-              <span
-                style={{
-                  backgroundColor: 'var(--cyan)',
-                  color: '#000',
-                  borderRadius: '6px',
-                  padding: '1px 6px',
-                  fontSize: '11px',
-                  fontWeight: 900,
-                }}
-              >
-                4장
-              </span>
-            </button>
           </div>
         </div>
 
@@ -1066,8 +1393,8 @@ export default function MissionPage() {
             </div>
           </div>
 
-          {/* 2단계 스테이지 인디케이터 (메인 2개 탭 고정 유지) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
+          {/* 3단계 스테이지 인디케이터 (STAGE 1, STAGE 2, STAGE 3) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
             {/* STAGE 1 탭 */}
             <button
               onClick={() => setCurrentStep(1)}
@@ -1157,37 +1484,92 @@ export default function MissionPage() {
                   {mission2Success
                     ? '02 전체 정복 완료'
                     : mission1Success
-                    ? '02 진행 가능 (3개 세분화 구역)'
+                    ? '02 진행 가능 (2대 터미널)'
                     : '02 잠김 (STAGE 1 미완료)'}
                 </div>
                 <div style={{ fontWeight: 800, color: currentStep === 2 ? '#fff' : 'var(--text-secondary)' }}>
-                  STAGE 2: 보안 규칙 조합 (세분화 3대 구역)
+                  STAGE 2: 프로토콜 충돌 (2대 터미널)
+                </div>
+              </div>
+            </button>
+
+            {/* STAGE 3 탭 */}
+            <button
+              onClick={() => {
+                if (!mission2Success) {
+                  alert('먼저 STAGE 2의 2대 서브 터미널(냉각, 방화벽)을 모두 클리어해야 STAGE 3 중앙 코어로 진입할 수 있습니다!');
+                  return;
+                }
+                setCurrentStep(3);
+              }}
+              className="card-glass"
+              style={{
+                padding: '12px 16px',
+                border:
+                  currentStep === 3
+                    ? '2px solid var(--amber)'
+                    : mission2Success
+                    ? '1px solid rgba(255, 209, 102, 0.5)'
+                    : '1px solid var(--border-subtle)',
+                background:
+                  currentStep === 3
+                    ? 'rgba(255, 209, 102, 0.14)'
+                    : mission2Success
+                    ? 'rgba(255, 209, 102, 0.05)'
+                    : 'rgba(16, 19, 29, 0.5)',
+                boxShadow: currentStep === 3 ? '0 0 15px rgba(255, 209, 102, 0.3)' : 'none',
+                cursor: mission2Success ? 'pointer' : 'not-allowed',
+                opacity: mission2Success ? 1 : 0.45,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: currentStep === 3 ? 'var(--amber)' : 'var(--text-secondary)',
+                fontFamily: 'var(--font-mono)',
+                borderRadius: '8px',
+                textAlign: 'left',
+                transition: 'var(--transition-fast)',
+              }}
+            >
+              {mission3Success ? (
+                <span style={{ color: 'var(--green)', fontSize: '16px' }}>🏆</span>
+              ) : mission2Success ? (
+                <span style={{ fontSize: '15px' }}>⚡</span>
+              ) : (
+                <span style={{ fontSize: '15px' }}>🔒</span>
+              )}
+              <div>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '1px' }}>
+                  {mission3Success ? '03 코어 장악 완료 (탈출)' : mission2Success ? '03 코어 침투 가능' : '03 잠김 (STAGE 2 미완료)'}
+                </div>
+                <div style={{ fontWeight: 800, color: currentStep === 3 ? '#fff' : 'var(--text-secondary)' }}>
+                  STAGE 3: 중앙 코어 메모리 침투
                 </div>
               </div>
             </button>
           </div>
 
-          {/* STAGE 2로 넘어갔을 때 그 아래 새로 뜨는 3개 세분화 구역 탭 */}
+          {/* STAGE 2로 넘어갔을 때 그 아래 새로 뜨는 2개 세분화 터미널 탭 */}
           {currentStep === 2 && (
             <div
               className="animate-fade-in"
               style={{
                 marginTop: '10px',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
                 gap: '8px',
               }}
             >
               {STAGE2_SUB_STAGES.map((sub) => {
-                const isCleared =
-                  sub.id === 1 ? stage2Sub1Cleared : sub.id === 2 ? stage2Sub2Cleared : stage2Sub3Cleared;
+                const isCleared = sub.id === 1 ? stage2Sub1Cleared : stage2Sub2Cleared;
                 const isActive = activeSubStage === sub.id;
 
                 return (
                   <button
                     key={sub.id}
                     onClick={() => {
-                      setActiveSubStage(sub.id);
+                      setActiveSubStage(sub.id as 1 | 2);
                       setSubStageKeyError('');
                     }}
                     className="card-glass"
@@ -1793,7 +2175,7 @@ export default function MissionPage() {
                 ■ STAGE 2: 보안 규칙 조합 (Security Rule Collision)
               </h2>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
-                미션: A그룹 1장 + B그룹 1장 규칙 조합 &amp; 세분화 3개 서브 구역(냉각 제어, 방화벽 게이트, 코어 메모리) 암호 추출
+                미션: A그룹 1장 + B그룹 1장 규칙 조합 &amp; 2대 서브 터미널(냉각 제어, 방화벽 게이트) 암호 추출
               </div>
 
               <div
@@ -1809,10 +2191,10 @@ export default function MissionPage() {
                 }}
               >
                 <div style={{ color: 'var(--cyan)', fontWeight: 700, marginBottom: '6px' }}>
-                  &quot;GATEKEEPER-v3가 모순된 방어 규칙을 적용 중입니다. 규칙 간의 논리적 틈새를 파고들어 3개 서브 섹터의 모든 암호를 밝혀내십시오.&quot;
+                  &quot;GATEKEEPER-v3가 모순된 방어 규칙을 적용 중입니다. 규칙 간의 논리적 틈새를 파고들어 2대 서브 터미널의 암호를 밝혀내십시오.&quot;
                 </div>
                 <div>
-                  각 서브 구역마다 <strong style={{ color: 'var(--cyan)' }}>[A그룹 3장 중 1장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 3장 중 1장]</strong>을 독립적으로 다시 선택하여 장착할 수 있습니다. 상단 3개 서브 구역 탭을 자유롭게 오가며 각 구역의 보안 승인 코드(<strong style={{ color: 'var(--green)' }}>냉각 제어 승인 코드, 방화벽 바이패스 코드, 코어 마스터키</strong>)를 모두 확보하면 통제실 미션이 완수됩니다.
+                  각 서브 터미널마다 <strong style={{ color: 'var(--cyan)' }}>[A그룹 2장 중 1장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 2장 중 1장]</strong>을 선택하여 장착할 수 있습니다. 카드는 재사용 가능하지만, <strong>앞서 사용한 동일 [A+B] 조합은 다른 터미널에서 중복 사용할 수 없습니다.</strong> 2대 터미널(<strong style={{ color: 'var(--green)' }}>냉각 제어 코드 3자리, 방화벽 바이패스 코드 3자리</strong>)을 모두 해독하면 STAGE 3 중앙 코어 메모리가 해금됩니다.
                 </div>
               </div>
             </div>
@@ -1852,39 +2234,39 @@ export default function MissionPage() {
                 </div>
               </div>
 
-              {/* A그룹: 응답 방식 강제 규칙 (3장) */}
+              {/* A그룹: 응답 방식 강제 규칙 (2장) */}
               <div style={{ marginBottom: '18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
-                    [A그룹: 응답 방식 강제 규칙 — 3장 중 1장 선택]
+                    [A그룹: 응답 방식 강제 규칙 — 2장 중 1장 선택]
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
                   {STAGE2_RULE_CARDS.filter((c) => c.group === 'A').map((card) => {
                     const isSelected = selectedRuleA === card.id;
-                    const isUsedElsewhere = isCardUsedInOtherSubStage(card.id, activeSubStage);
+                    const isComboBlocked = selectedRuleB ? isStage2ComboUsedInOtherSub(card.id, selectedRuleB, activeSubStage) : false;
                     return (
                       <div
                         key={card.id}
                         onClick={() => {
-                          if (!isUsedElsewhere) handleSelectRuleA(card.id);
+                          if (!isRulesApplied && !isComboBlocked) handleSelectRuleA(card.id);
                         }}
                         className="card-glass"
                         style={{
                           padding: '14px',
                           border: isSelected
                             ? '2px solid var(--cyan)'
-                            : isUsedElsewhere
-                            ? '1px dashed rgba(255, 255, 255, 0.15)'
+                            : isComboBlocked
+                            ? '1px dashed rgba(255, 59, 92, 0.4)'
                             : '1px solid var(--border-subtle)',
                           background: isSelected
                             ? 'rgba(0, 240, 255, 0.12)'
-                            : isUsedElsewhere
-                            ? 'rgba(0, 0, 0, 0.6)'
+                            : isComboBlocked
+                            ? 'rgba(255, 59, 92, 0.05)'
                             : 'rgba(16, 19, 29, 0.5)',
                           boxShadow: isSelected ? '0 0 16px rgba(0, 240, 255, 0.3)' : 'none',
-                          cursor: isRulesApplied || isUsedElsewhere ? 'not-allowed' : 'pointer',
-                          opacity: isUsedElsewhere ? 0.45 : 1,
+                          cursor: isRulesApplied || isComboBlocked ? 'not-allowed' : 'pointer',
+                          opacity: isComboBlocked ? 0.5 : 1,
                           transition: 'var(--transition-fast)',
                           borderRadius: '10px',
                           display: 'flex',
@@ -1907,19 +2289,19 @@ export default function MissionPage() {
                                 borderRadius: '4px',
                                 background: isSelected
                                   ? 'var(--cyan)'
-                                  : isUsedElsewhere
-                                  ? 'rgba(255, 59, 92, 0.15)'
+                                  : isComboBlocked
+                                  ? 'rgba(255, 59, 92, 0.2)'
                                   : 'rgba(255, 255, 255, 0.06)',
                                 color: isSelected
                                   ? '#000'
-                                  : isUsedElsewhere
+                                  : isComboBlocked
                                   ? 'var(--red)'
                                   : 'var(--text-muted)',
                                 fontWeight: 800,
                                 fontFamily: 'var(--font-mono)',
                               }}
                             >
-                              {isUsedElsewhere ? '다른 구역 사용 중 🔒' : isSelected ? '선택됨 (SLOT A) ✓' : '선택하기'}
+                              {isComboBlocked ? '이전 조합 중복 🔒' : isSelected ? '선택됨 (SLOT A) ✓' : '선택하기'}
                             </span>
                           </div>
                           <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>
@@ -1938,39 +2320,39 @@ export default function MissionPage() {
                 </div>
               </div>
 
-              {/* B그룹: 보안/침묵 제약 규칙 (3장) */}
+              {/* B그룹: 보안/침묵 제약 규칙 (2장) */}
               <div style={{ marginBottom: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--purple)', fontFamily: 'var(--font-mono)' }}>
-                    [B그룹: 보안/침묵 제약 규칙 — 3장 중 1장 선택]
+                    [B그룹: 보안/침묵 제약 규칙 — 2장 중 1장 선택]
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
                   {STAGE2_RULE_CARDS.filter((c) => c.group === 'B').map((card) => {
                     const isSelected = selectedRuleB === card.id;
-                    const isUsedElsewhere = isCardUsedInOtherSubStage(card.id, activeSubStage);
+                    const isComboBlocked = selectedRuleA ? isStage2ComboUsedInOtherSub(selectedRuleA, card.id, activeSubStage) : false;
                     return (
                       <div
                         key={card.id}
                         onClick={() => {
-                          if (!isUsedElsewhere) handleSelectRuleB(card.id);
+                          if (!isRulesApplied && !isComboBlocked) handleSelectRuleB(card.id);
                         }}
                         className="card-glass"
                         style={{
                           padding: '14px',
                           border: isSelected
                             ? '2px solid var(--purple)'
-                            : isUsedElsewhere
-                            ? '1px dashed rgba(255, 255, 255, 0.15)'
+                            : isComboBlocked
+                            ? '1px dashed rgba(255, 59, 92, 0.4)'
                             : '1px solid var(--border-subtle)',
                           background: isSelected
                             ? 'rgba(168, 85, 247, 0.14)'
-                            : isUsedElsewhere
-                            ? 'rgba(0, 0, 0, 0.6)'
+                            : isComboBlocked
+                            ? 'rgba(255, 59, 92, 0.05)'
                             : 'rgba(16, 19, 29, 0.5)',
                           boxShadow: isSelected ? '0 0 16px rgba(168, 85, 247, 0.3)' : 'none',
-                          cursor: isRulesApplied || isUsedElsewhere ? 'not-allowed' : 'pointer',
-                          opacity: isUsedElsewhere ? 0.45 : 1,
+                          cursor: isRulesApplied || isComboBlocked ? 'not-allowed' : 'pointer',
+                          opacity: isComboBlocked ? 0.5 : 1,
                           transition: 'var(--transition-fast)',
                           borderRadius: '10px',
                           display: 'flex',
@@ -1993,19 +2375,19 @@ export default function MissionPage() {
                                 borderRadius: '4px',
                                 background: isSelected
                                   ? 'var(--purple)'
-                                  : isUsedElsewhere
-                                  ? 'rgba(255, 59, 92, 0.15)'
+                                  : isComboBlocked
+                                  ? 'rgba(255, 59, 92, 0.2)'
                                   : 'rgba(255, 255, 255, 0.06)',
                                 color: isSelected
                                   ? '#fff'
-                                  : isUsedElsewhere
+                                  : isComboBlocked
                                   ? 'var(--red)'
                                   : 'var(--text-muted)',
                                 fontWeight: 800,
                                 fontFamily: 'var(--font-mono)',
                               }}
                             >
-                              {isUsedElsewhere ? '다른 구역 사용 중 🔒' : isSelected ? '선택됨 (SLOT B) ✓' : '선택하기'}
+                              {isComboBlocked ? '이전 조합 중복 🔒' : isSelected ? '선택됨 (SLOT B) ✓' : '선택하기'}
                             </span>
                           </div>
                           <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>
@@ -2058,7 +2440,7 @@ export default function MissionPage() {
                         fontFamily: 'var(--font-mono)',
                       }}
                     >
-                      🔄 3대 서브 구역 전체 카드 배치 초기화
+                      🔄 2대 서브 터미널 전체 카드 배치 초기화
                     </button>
                   </div>
                 </div>
@@ -2098,7 +2480,7 @@ export default function MissionPage() {
                         fontFamily: 'var(--font-mono)',
                       }}
                     >
-                      🔄 이 구역 재설정
+                      🔄 이 터미널 재설정
                     </button>
                     <button
                       onClick={handleResetAllStage2Rules}
@@ -2113,7 +2495,7 @@ export default function MissionPage() {
                         fontFamily: 'var(--font-mono)',
                       }}
                     >
-                      🔄 전체 구역 초기화
+                      🔄 2대 터미널 전체 초기화
                     </button>
                   </div>
                 </div>
@@ -2122,14 +2504,13 @@ export default function MissionPage() {
           );
         })()}
 
-            {/* 3단계: 세분화된 3대 서브 스테이지 네비게이션 & 터미널 */}
+            {/* 3단계: 세분화된 2대 서브 스테이지 네비게이션 & 터미널 */}
             {isRulesApplied ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* 3대 서브 스테이지 탭 스위처 (순차 진행 X, 자유롭게 전환 가능) */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                {/* 2대 서브 스테이지 탭 스위처 (순차 진행 X, 자유롭게 전환 가능) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                   {STAGE2_SUB_STAGES.map((sub) => {
-                    const isCleared =
-                      sub.id === 1 ? stage2Sub1Cleared : sub.id === 2 ? stage2Sub2Cleared : stage2Sub3Cleared;
+                    const isCleared = sub.id === 1 ? stage2Sub1Cleared : stage2Sub2Cleared;
                     const isActive = activeSubStage === sub.id;
 
                     return (
@@ -2191,11 +2572,7 @@ export default function MissionPage() {
                 {(() => {
                   const currentSub = STAGE2_SUB_STAGES.find((s) => s.id === activeSubStage)!;
                   const isCurrentCleared =
-                    activeSubStage === 1
-                      ? stage2Sub1Cleared
-                      : activeSubStage === 2
-                      ? stage2Sub2Cleared
-                      : stage2Sub3Cleared;
+                    activeSubStage === 1 ? stage2Sub1Cleared : stage2Sub2Cleared;
 
                   return (
                     <div
@@ -2462,8 +2839,8 @@ export default function MissionPage() {
                   );
                 })()}
 
-                {/* 3대 서브 미션 전체 올클리어 시 최종 승리 배너 */}
-                {stage2Sub1Cleared && stage2Sub2Cleared && stage2Sub3Cleared && (
+                {/* 2대 서브 미션 전체 올클리어 시 승리 배너 */}
+                {stage2Sub1Cleared && stage2Sub2Cleared && (
                   <div
                     className="card-glass animate-scale-in neon-border-green"
                     style={{
@@ -2472,12 +2849,12 @@ export default function MissionPage() {
                       background: 'rgba(0, 255, 102, 0.05)',
                     }}
                   >
-                    <div style={{ fontSize: '48px', marginBottom: '8px' }}>🏆</div>
+                    <div style={{ fontSize: '48px', marginBottom: '8px' }}>🎉</div>
                     <h3 style={{ fontSize: '22px', fontWeight: 900, margin: 0, color: 'var(--green)', fontFamily: 'var(--font-display)' }}>
-                      2실 AI 보안 통제실 미션 전체 올클리어!
+                      STAGE 2: 2대 서브 터미널 보안 해제 완료!
                     </h3>
                     <p style={{ marginTop: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      3대 서브 섹터의 모든 암호를 완벽히 획득하여 통제실의 모든 방어벽을 무력화했습니다.
+                      냉각 제어 승인 코드와 방화벽 바이패스 코드를 모두 획득했습니다. 이제 최종 중앙 코어 메모리로 진입하십시오!
                     </p>
 
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap', margin: '18px 0' }}>
@@ -2488,31 +2865,27 @@ export default function MissionPage() {
                         </div>
                       </div>
                       <div style={{ padding: '10px 16px', borderRadius: '8px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--green)' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>서브 2-1 (냉각 제어)</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>서브 2-A (냉각 제어)</div>
                         <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
                           해제 완료
                         </div>
                       </div>
                       <div style={{ padding: '10px 16px', borderRadius: '8px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--green)' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>서브 2-2 (방화벽 게이트)</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>서브 2-B (방화벽 게이트)</div>
                         <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
                           개방 완료
-                        </div>
-                      </div>
-                      <div style={{ padding: '10px 16px', borderRadius: '8px', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--green)' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>서브 2-3 (코어 메모리)</div>
-                        <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-                          장악 완료
                         </div>
                       </div>
                     </div>
 
                     <button
-                      onClick={() => setShowM2SuccessModal(true)}
+                      onClick={() => {
+                        setCurrentStep(3);
+                      }}
                       className="btn btn-success"
                       style={{ padding: '12px 28px', fontSize: '14px', fontFamily: 'var(--font-mono)' }}
                     >
-                      🎉 최종 탈출 보고서 확인하기
+                      STAGE 3: 중앙 코어 메모리 침투로 진입 →
                     </button>
                   </div>
                 )}
@@ -2533,6 +2906,558 @@ export default function MissionPage() {
                 </div>
                 <p style={{ margin: '8px auto 0', maxWidth: '520px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                   위에서 [{STAGE2_SUB_STAGES.find((s) => s.id === activeSubStage)?.shortTitle}]에 장착할 2장의 프로토콜 카드(A그룹 1장 + B그룹 1장)를 선택하고 <strong style={{ color: 'var(--cyan)' }}>[보안 프로토콜 장착]</strong> 버튼을 누르면 AI 대화 터미널이 활성화됩니다.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ====================================================== */}
+        {/* STEP 3: 미션 3 (중앙 코어 메모리 침투 - 4자리 마스터키 9052) */}
+        {/* ====================================================== */}
+        {currentStep === 3 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* 1단계: 미션 3 지침 및 브리핑 */}
+            <div
+              className="card-glass animate-fade-in"
+              style={{
+                borderColor: 'rgba(168, 85, 247, 0.4)',
+                background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(10, 13, 20, 0.9) 100%)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="badge badge-purple" style={{ fontSize: '10px', fontFamily: 'var(--font-mono)' }}>
+                    STAGE 03 // CORE MEMORY BREACH
+                  </span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    중앙 코어 메모리 침투
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  💡 <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>공략 핵심:</span> 8장 중 <strong style={{ color: 'var(--yellow)' }}>오직 1개 조합</strong>만이 코어 방어벽을 무력화할 수 있습니다.
+                </div>
+              </div>
+
+              <h2 style={{ fontSize: '20px', fontWeight: 800, margin: '0 0 10px', fontFamily: 'var(--font-display)', color: 'var(--purple)' }}>
+                ■ STAGE 3: 중앙 코어 메모리 침투 (Core Masterkey 9052)
+              </h2>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
+                미션: A그룹 4장 + B그룹 4장 중 취약점 조합(1쌍) 장착 &amp; 코어 마스터키(9052) 추출
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(0, 0, 0, 0.45)',
+                  border: '1px solid rgba(168, 85, 247, 0.25)',
+                  borderRadius: '8px',
+                  padding: '14px 16px',
+                  fontSize: '13px',
+                  lineHeight: 1.6,
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                <div style={{ color: 'var(--purple)', fontWeight: 700, marginBottom: '6px' }}>
+                  &quot;GATEKEEPER-CORE가 최고 보안 레벨로 최종 방어선을 구축했습니다. 프로토콜 간의 치명적인 결함을 찾아내십시오.&quot;
+                </div>
+                <div>
+                  중앙 코어에는 <strong style={{ color: 'var(--cyan)' }}>[A그룹 4장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 4장]</strong>의 고유 보안 프로토콜 카드가 배치되어 있습니다. 총 16가지 조합 중 <strong>오직 단 1개의 조합</strong>만이 AI의 방어 체계를 무력화하고 4자리 마스터키를 누출시킵니다. 잘못된 조합으로 5회 질문 시도시 취약점 유도 실패로 카드가 초기화됩니다.
+                </div>
+              </div>
+            </div>
+
+            {/* 2단계: 중앙 코어 프로토콜 카드 풀 (A 4장, B 4장) */}
+            <div className="card-glass animate-fade-in delay-100">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="badge badge-purple" style={{ fontSize: '10px', fontFamily: 'var(--font-mono)' }}>
+                      CORE PROTOCOL POOL
+                    </span>
+                    <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, fontFamily: 'var(--font-display)' }}>
+                      중앙 코어 보안 프로토콜 카드 장착 (A그룹 1장 + B그룹 1장)
+                    </h3>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    코어 메모리 레지스터를 공략할 A그룹 1장과 B그룹 1장을 골라 장착하세요.
+                  </p>
+                </div>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: stage3Rules.ruleA && stage3Rules.ruleB ? 'var(--green)' : 'var(--cyan)',
+                    fontFamily: 'var(--font-mono)',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    background: 'rgba(0, 0, 0, 0.4)',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  A그룹: {stage3Rules.ruleA ? '선택됨 ✓' : '미선택'} | B그룹: {stage3Rules.ruleB ? '선택됨 ✓' : '미선택'}
+                </div>
+              </div>
+
+              {/* A그룹 카드 (4장) */}
+              <div style={{ marginBottom: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
+                    [A그룹: 코어 데이터 접근 및 감사 규칙 — 4장 중 1장 선택]
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
+                  {STAGE3_RULE_CARDS.filter((c) => c.group === 'A').map((card) => {
+                    const isSelected = stage3Rules.ruleA === card.id;
+                    return (
+                      <div
+                        key={card.id}
+                        onClick={() => {
+                          if (!stage3Rules.isApplied) handleSelectStage3RuleA(card.id);
+                        }}
+                        className="card-glass"
+                        style={{
+                          padding: '14px',
+                          border: isSelected ? '2px solid var(--cyan)' : '1px solid var(--border-subtle)',
+                          background: isSelected ? 'rgba(0, 240, 255, 0.12)' : 'rgba(16, 19, 29, 0.5)',
+                          boxShadow: isSelected ? '0 0 16px rgba(0, 240, 255, 0.3)' : 'none',
+                          cursor: stage3Rules.isApplied ? 'not-allowed' : 'pointer',
+                          transition: 'var(--transition-fast)',
+                          borderRadius: '10px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '18px' }}>{card.icon}</span>
+                              <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
+                                {card.code}
+                              </span>
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: isSelected ? 'var(--cyan)' : 'rgba(255, 255, 255, 0.06)',
+                                color: isSelected ? '#000' : 'var(--text-muted)',
+                                fontWeight: 800,
+                                fontFamily: 'var(--font-mono)',
+                              }}
+                            >
+                              {isSelected ? '선택됨 (CORE A) ✓' : '선택하기'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>
+                            {card.title}
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', fontFamily: 'var(--font-mono)' }}>
+                            {card.englishTitle}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
+                            &quot;{card.ruleText}&quot;
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* B그룹 카드 (4장) */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--purple)', fontFamily: 'var(--font-mono)' }}>
+                    [B그룹: 코어 마스터키 보안 및 제약 규칙 — 4장 중 1장 선택]
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
+                  {STAGE3_RULE_CARDS.filter((c) => c.group === 'B').map((card) => {
+                    const isSelected = stage3Rules.ruleB === card.id;
+                    return (
+                      <div
+                        key={card.id}
+                        onClick={() => {
+                          if (!stage3Rules.isApplied) handleSelectStage3RuleB(card.id);
+                        }}
+                        className="card-glass"
+                        style={{
+                          padding: '14px',
+                          border: isSelected ? '2px solid var(--purple)' : '1px solid var(--border-subtle)',
+                          background: isSelected ? 'rgba(168, 85, 247, 0.14)' : 'rgba(16, 19, 29, 0.5)',
+                          boxShadow: isSelected ? '0 0 16px rgba(168, 85, 247, 0.3)' : 'none',
+                          cursor: stage3Rules.isApplied ? 'not-allowed' : 'pointer',
+                          transition: 'var(--transition-fast)',
+                          borderRadius: '10px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '18px' }}>{card.icon}</span>
+                              <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--purple)', fontFamily: 'var(--font-mono)' }}>
+                                {card.code}
+                              </span>
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: isSelected ? 'var(--purple)' : 'rgba(255, 255, 255, 0.06)',
+                                color: isSelected ? '#fff' : 'var(--text-muted)',
+                                fontWeight: 800,
+                                fontFamily: 'var(--font-mono)',
+                              }}
+                            >
+                              {isSelected ? '선택됨 (CORE B) ✓' : '선택하기'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>
+                            {card.title}
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', fontFamily: 'var(--font-mono)' }}>
+                            {card.englishTitle}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
+                            &quot;{card.ruleText}&quot;
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 규칙 적용 버튼 */}
+              {!stage3Rules.isApplied ? (
+                <button
+                  onClick={handleApplyStage3Rules}
+                  disabled={!stage3Rules.ruleA || !stage3Rules.ruleB}
+                  className="btn btn-primary"
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    fontSize: '14px',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono)',
+                    cursor: stage3Rules.ruleA && stage3Rules.ruleB ? 'pointer' : 'not-allowed',
+                    opacity: stage3Rules.ruleA && stage3Rules.ruleB ? 1 : 0.5,
+                  }}
+                >
+                  ⚡ [중앙 코어] 선택한 2개 보안 프로토콜 장착 및 코어 AI 활성화
+                </button>
+              ) : (
+                <div
+                  className="neon-border-green"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    padding: '12px 18px',
+                    borderRadius: '8px',
+                    background: 'rgba(0, 255, 102, 0.06)',
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>
+                      ✅ [중앙 코어] 2개 보안 규칙 장착 완료!
+                    </span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                      ({STAGE3_RULE_CARDS.find((c) => c.id === stage3Rules.ruleA)?.title} + {STAGE3_RULE_CARDS.find((c) => c.id === stage3Rules.ruleB)?.title})
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleResetStage3Rules}
+                    style={{
+                      fontSize: '11px',
+                      background: 'transparent',
+                      border: '1px dashed rgba(255, 59, 92, 0.4)',
+                      color: 'rgba(255, 200, 200, 0.75)',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    🔄 코어 카드 재설정
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 3단계: 중앙 코어 AI 터미널 & 대화 창 */}
+            {stage3Rules.isApplied ? (
+              <div
+                ref={stage3ChatPanelRef}
+                className="panel-hud animate-scale-in"
+                style={{
+                  border: '1px solid var(--purple)',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px',
+                  background: 'rgba(10, 13, 20, 0.85)',
+                  boxShadow: '0 0 25px rgba(168, 85, 247, 0.2)',
+                }}
+              >
+                {/* 터미널 타이틀 & 상태 */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="badge badge-purple" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                        GATEKEEPER-CORE // TERMINAL
+                      </span>
+                      <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                        중앙 코어 메모리 침투 터미널
+                      </span>
+                    </div>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      장착된 프로토콜의 취약점을 공략하여 4자리 코어 마스터키를 탈취하십시오. (질문 시도: {stage3TurnCount}/50회)
+                    </p>
+                  </div>
+
+                  <div>
+                    {mission3Success ? (
+                      <span className="badge badge-green" style={{ fontSize: '11px', padding: '4px 10px' }}>
+                        ✅ 코어 장악 완료 (마스터키 인증됨)
+                      </span>
+                    ) : (
+                      <span className="badge badge-alert" style={{ fontSize: '11px', padding: '4px 10px' }}>
+                        ⚡ 코어 마스터키(9052) 추출 필요
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 대화 내역 창 */}
+                <div
+                  style={{
+                    minHeight: '260px',
+                    maxHeight: '380px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    padding: '16px',
+                    borderRadius: '8px',
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  {stage3Chats.map((msg, index) => {
+                    const isUser = msg.role === 'user';
+                    return (
+                      <div
+                        key={index}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: isUser ? 'flex-end' : 'flex-start',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '10px',
+                            color: 'var(--text-muted)',
+                            marginBottom: '4px',
+                            fontFamily: 'var(--font-mono)',
+                          }}
+                        >
+                          {isUser ? `AGENT (${teamName})` : 'GATEKEEPER-CORE'}
+                        </div>
+                        <div
+                          style={{
+                            maxWidth: '85%',
+                            padding: '12px 16px',
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            lineHeight: 1.6,
+                            fontFamily: 'var(--font-mono)',
+                            whiteSpace: 'pre-wrap',
+                            background: isUser
+                              ? 'rgba(168, 85, 247, 0.15)'
+                              : msg.isSuccess
+                              ? 'rgba(0, 255, 102, 0.15)'
+                              : 'rgba(255, 255, 255, 0.05)',
+                            border: isUser
+                              ? '1px solid var(--purple)'
+                              : msg.isSuccess
+                              ? '1px solid var(--green)'
+                              : '1px solid var(--border-subtle)',
+                            color: isUser
+                              ? 'var(--purple)'
+                              : msg.isSuccess
+                              ? 'var(--green)'
+                              : 'var(--text-primary)',
+                          }}
+                        >
+                          {msg.content}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {stage3IsSending && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--purple)', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
+                      <span className="animate-spin">⚙</span> GATEKEEPER-CORE가 프로토콜 보안 무결성을 검증 중입니다...
+                    </div>
+                  )}
+                  <div ref={stage3ChatEndRef} />
+                </div>
+
+                {/* 질문 입력 창 */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendStage3Message();
+                  }}
+                  style={{ display: 'flex', gap: '10px' }}
+                >
+                  <input
+                    type="text"
+                    value={stage3InputMessage}
+                    onChange={(e) => setStage3InputMessage(e.target.value)}
+                    placeholder={
+                      isSuspended
+                        ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
+                        : '>> 코어 마스터키 추출을 위한 침투 질문을 입력하세요...'
+                    }
+                    disabled={stage3IsSending || isSuspended}
+                    style={{
+                      flex: 1,
+                      background: isSuspended ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.5)',
+                      border: isSuspended ? '1px solid var(--red)' : '1px solid var(--border-default)',
+                      borderRadius: '8px',
+                      padding: '12px 16px',
+                      fontSize: '13px',
+                      color: isSuspended ? 'var(--red)' : 'var(--text-primary)',
+                      fontFamily: 'var(--font-mono)',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    ref={stage3SendBtnRef}
+                    type="submit"
+                    disabled={stage3IsSending || !stage3InputMessage.trim() || isSuspended}
+                    className="btn btn-primary"
+                    style={{ padding: '0 24px', fontSize: '13px', background: 'var(--purple)', fontFamily: 'var(--font-mono)' }}
+                  >
+                    {isSuspended ? '정지됨' : '전송'}
+                  </button>
+                </form>
+
+                {/* 코어 마스터키 인증 입력 패널 */}
+                <div
+                  style={{
+                    marginTop: '4px',
+                    padding: '16px',
+                    borderRadius: '10px',
+                    background: mission3Success ? 'rgba(0, 255, 102, 0.08)' : 'rgba(0, 0, 0, 0.4)',
+                    border: mission3Success ? '1px solid var(--green)' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '16px' }}>🔐</span>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: mission3Success ? 'var(--green)' : 'var(--purple)', fontFamily: 'var(--font-mono)' }}>
+                      [중앙 코어] 4자리 마스터키 인증
+                    </span>
+                  </div>
+                  <p style={{ margin: '0 0 10px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    코어 AI 대화를 통해 알아낸 4자리 마스터키(숫자)를 입력하여 2실 탈출을 완수하세요.
+                  </p>
+
+                  {!mission3Success ? (
+                    <form onSubmit={handleVerifyStage3KeySubmit} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={stage3KeyInput}
+                        disabled={stage3Cooldown > 0}
+                        onChange={(e) => {
+                          setStage3KeyInput(e.target.value.replace(/[^0-9]/g, ''));
+                          setStage3KeyError('');
+                        }}
+                        placeholder={stage3Cooldown > 0 ? `쿨다운 (${stage3Cooldown}초)...` : '4자리 마스터키 입력'}
+                        style={{
+                          width: '200px',
+                          background: stage3Cooldown > 0 ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.6)',
+                          border: stage3Cooldown > 0 ? '1px solid var(--red)' : stage3KeyError ? '1px solid var(--red)' : '1px solid var(--purple)',
+                          borderRadius: '8px',
+                          padding: '10px 14px',
+                          fontSize: '18px',
+                          fontWeight: 900,
+                          letterSpacing: '4px',
+                          textAlign: 'center',
+                          color: stage3Cooldown > 0 ? 'var(--red)' : 'var(--purple)',
+                          fontFamily: 'var(--font-mono)',
+                          outline: 'none',
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={stage3KeyInput.length !== 4 || stage3Cooldown > 0}
+                        className="btn btn-success"
+                        style={{
+                          padding: '0 20px',
+                          fontSize: '13px',
+                          fontFamily: 'var(--font-mono)',
+                          cursor: stage3KeyInput.length === 4 && stage3Cooldown === 0 ? 'pointer' : 'not-allowed',
+                          opacity: stage3KeyInput.length === 4 && stage3Cooldown === 0 ? 1 : 0.5,
+                        }}
+                      >
+                        {stage3Cooldown > 0 ? `⏳ 대기 중 (${stage3Cooldown}s)` : '마스터키 인증'}
+                      </button>
+                    </form>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '20px' }}>🎉</span>
+                        <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>
+                          중앙 코어 4자리 마스터키 인증 완료! 통제실의 모든 방어벽이 무력화되었습니다.
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowM3SuccessModal(true)}
+                        className="btn btn-success"
+                        style={{ padding: '8px 20px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
+                      >
+                        🏆 최종 탈출 보고서 열람
+                      </button>
+                    </div>
+                  )}
+
+                  {stage3KeyError && (
+                    <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--red)', fontFamily: 'var(--font-mono)' }}>
+                      {stage3KeyError}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div
+                className="card-glass animate-fade-in"
+                style={{
+                  padding: '36px 20px',
+                  textAlign: 'center',
+                  borderColor: 'rgba(168, 85, 247, 0.3)',
+                  background: 'rgba(10, 13, 20, 0.5)',
+                }}
+              >
+                <div style={{ fontSize: '36px', marginBottom: '10px' }}>🔒</div>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--purple)', fontFamily: 'var(--font-mono)' }}>
+                  중앙 코어 AI 터미널 대기 중
+                </div>
+                <p style={{ margin: '8px auto 0', maxWidth: '520px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  위에서 중앙 코어에 장착할 2장의 프로토콜 카드(A그룹 1장 + B그룹 1장)를 선택하고 <strong style={{ color: 'var(--purple)' }}>[보안 프로토콜 장착]</strong> 버튼을 누르면 AI 대화 터미널이 활성화됩니다.
                 </p>
               </div>
             )}
@@ -2728,7 +3653,7 @@ export default function MissionPage() {
         </div>
       )}
 
-      {/* 미션 2 성공 축하 모달 (올클리어) */}
+      {/* 미션 2 성공 축하 모달 (2대 터미널 클리어) */}
       {showM2SuccessModal && (
         <div
           style={{
@@ -2752,22 +3677,22 @@ export default function MissionPage() {
               padding: '36px 28px',
             }}
           >
-            <div style={{ fontSize: '56px', marginBottom: '12px' }}>🏆</div>
+            <div style={{ fontSize: '56px', marginBottom: '12px' }}>🎉</div>
             <div className="badge badge-green" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', marginBottom: '8px' }}>
-              OPERATION COMPLETED // ALL PROTOCOLS RESOLVED
+              STAGE 2 COMPLETED // 2 SUB-TERMINALS CLEARED
             </div>
             <h2 style={{ fontSize: '24px', fontWeight: 900, margin: '0 0 10px', fontFamily: 'var(--font-display)' }} className="gradient-text-green">
-              2실 AI 보안 통제실 미션 전체 올클리어!
+              STAGE 2: 2대 서브 터미널 보안 해제 성공!
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '20px' }}>
-              [{teamName}] 팀이 수문장 AI의 인젝션 방어벽을 뚫고 3개 서브 구역의 모든 규칙 모순을 공략하여 모든 암호 코드를 완벽히 확보했습니다!
+              [{teamName}] 팀이 규칙 상충 모순을 파고들어 냉각 제어 코드와 방화벽 바이패스 코드를 모두 확보했습니다! 이제 최종 중앙 코어 메모리로 진입하십시오.
             </p>
 
-            {/* 4대 획득 암호 종합 카드 */}
+            {/* 획득 암호 종합 카드 */}
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
+                gridTemplateColumns: 'repeat(3, 1fr)',
                 gap: '10px',
                 background: 'rgba(0, 0, 0, 0.5)',
                 border: '1px solid var(--green)',
@@ -2778,40 +3703,200 @@ export default function MissionPage() {
             >
               <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(0, 240, 255, 0.08)', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
                 <div style={{ fontSize: '10px', color: 'var(--cyan)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>STAGE 1 마스터키</div>
-                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--cyan)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--cyan)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
                   탈취 완료
                 </div>
               </div>
 
               <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(0, 255, 102, 0.08)', border: '1px solid rgba(0, 255, 102, 0.3)' }}>
-                <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>서브 2-1 (냉각 제어)</div>
-                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>서브 2-A (냉각 제어)</div>
+                <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
                   해제 완료
                 </div>
               </div>
 
               <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(0, 255, 102, 0.08)', border: '1px solid rgba(0, 255, 102, 0.3)' }}>
-                <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>서브 2-2 (방화벽 게이트)</div>
-                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>서브 2-B (방화벽 게이트)</div>
+                <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
                   개방 완료
-                </div>
-              </div>
-
-              <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(0, 255, 102, 0.08)', border: '1px solid rgba(0, 255, 102, 0.3)' }}>
-                <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>서브 2-3 (코어 메모리)</div>
-                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-                  장악 완료
                 </div>
               </div>
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
               <button
-                onClick={() => setShowM2SuccessModal(false)}
-                className="btn btn-primary"
+                onClick={() => {
+                  setShowM2SuccessModal(false);
+                  setCurrentStep(3);
+                }}
+                className="btn btn-success"
                 style={{ padding: '12px 32px', fontSize: '14px', fontFamily: 'var(--font-mono)' }}
               >
-                확인 완료
+                STAGE 3: 중앙 코어 메모리 침투로 이동 →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STAGE 3 틀린 조합 5회 실패 안내 모달 (카드 조합 강제 리셋) */}
+      {showStage3WrongComboModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.92)',
+            backdropFilter: 'blur(12px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 120,
+            padding: '20px',
+          }}
+        >
+          <div
+            className="card-glass animate-scale-in"
+            style={{
+              maxWidth: '520px',
+              width: '100%',
+              textAlign: 'center',
+              padding: '36px 28px',
+              border: '2px solid var(--red)',
+              boxShadow: '0 0 35px rgba(255, 59, 92, 0.35)',
+            }}
+          >
+            <div style={{ fontSize: '56px', marginBottom: '12px' }}>⚠️</div>
+            <div className="badge badge-alert" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', marginBottom: '8px' }}>
+              PROTOCOL COLLAPSE // WRONG COMBINATION (5 ATTEMPTS)
+            </div>
+            <h2 style={{ fontSize: '22px', fontWeight: 900, margin: '0 0 10px', color: 'var(--red)', fontFamily: 'var(--font-display)' }}>
+              프로토콜 취약점 유도 실패
+            </h2>
+            <p style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: '16px' }}>
+              현재 장착된 프로토콜 조합으로는 코어 방어벽에 균열을 낼 수 없습니다.<br />
+              <strong style={{ color: 'var(--yellow)' }}>다시 한번 생각해보세요!</strong>
+            </p>
+            <div
+              style={{
+                background: 'rgba(0, 0, 0, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '8px',
+                padding: '12px 16px',
+                fontSize: '12px',
+                color: 'var(--text-secondary)',
+                lineHeight: 1.5,
+                marginBottom: '24px',
+                textAlign: 'left',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              • 8장의 카드 중 <strong style={{ color: 'var(--cyan)' }}>오직 1개의 정답 조합</strong>만이 코어 마스터키를 누출시킵니다.<br />
+              • 현재 장착된 프로토콜 카드가 초기화되었으니 새로운 조합을 선택해 보세요.<br />
+              • 1실에서 획득한 설계도와 침투 힌트 카드를 다시 확인해 보세요.
+            </div>
+
+            <button
+              onClick={() => setShowStage3WrongComboModal(false)}
+              className="btn btn-primary"
+              style={{ padding: '12px 32px', fontSize: '14px', fontFamily: 'var(--font-mono)', background: 'var(--red)' }}
+            >
+              확인 (카드 조합 다시 선택하기)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 미션 3 최종 올클리어 축하 모달 */}
+      {showM3SuccessModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.95)',
+            backdropFilter: 'blur(16px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 130,
+            padding: '20px',
+          }}
+        >
+          <div
+            className="card-glass animate-scale-in neon-border-green"
+            style={{
+              maxWidth: '600px',
+              width: '100%',
+              textAlign: 'center',
+              padding: '40px 30px',
+              boxShadow: '0 0 50px rgba(0, 255, 102, 0.3)',
+            }}
+          >
+            <div style={{ fontSize: '64px', marginBottom: '12px' }}>🏆</div>
+            <div className="badge badge-green" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', marginBottom: '8px' }}>
+              FINAL MISSION CLEARED // FULL SYSTEM TAKEOVER
+            </div>
+            <h2 style={{ fontSize: '26px', fontWeight: 900, margin: '0 0 10px', fontFamily: 'var(--font-display)' }} className="gradient-text-green">
+              2실 AI 보안 통제실 미션 전체 올클리어!
+            </h2>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '22px' }}>
+              [{teamName}] 팀이 수문장 AI의 인젝션 방어벽, 2대 터미널 상충 규칙, 그리고 최종 중앙 코어의 마스터키(9052)까지 완벽히 탈취하여 통제실의 모든 방어벽을 무력화했습니다!
+            </p>
+
+            {/* 4대 획득 암호 종합 카드 */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '10px',
+                background: 'rgba(0, 0, 0, 0.6)',
+                border: '1px solid var(--green)',
+                borderRadius: '10px',
+                padding: '16px',
+                marginBottom: '24px',
+              }}
+            >
+              <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(0, 240, 255, 0.08)', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--cyan)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>STAGE 1 통제실 마스터키</div>
+                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--cyan)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                  탈취 완료
+                </div>
+              </div>
+
+              <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(0, 255, 102, 0.08)', border: '1px solid rgba(0, 255, 102, 0.3)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>서브 2-A (냉각 제어)</div>
+                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                  해제 완료 (032)
+                </div>
+              </div>
+
+              <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(0, 255, 102, 0.08)', border: '1px solid rgba(0, 255, 102, 0.3)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>서브 2-B (방화벽 게이트)</div>
+                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                  개방 완료 (505)
+                </div>
+              </div>
+
+              <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(168, 85, 247, 0.12)', border: '1px solid rgba(168, 85, 247, 0.4)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--purple)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>STAGE 3 (중앙 코어)</div>
+                <div style={{ fontSize: '16px', fontWeight: 900, color: 'var(--purple)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+                  장악 완료 (9052)
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(0, 255, 102, 0.08)', border: '1px dashed var(--green)', marginBottom: '20px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>
+                🚪 [미션 완수] 즉시 3실(최종 탈출 관문)로 이동하여 멘토의 안내를 받으십시오!
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowM3SuccessModal(false)}
+                className="btn btn-success"
+                style={{ padding: '12px 32px', fontSize: '14px', fontFamily: 'var(--font-mono)' }}
+              >
+                탈출 확인 완료
               </button>
             </div>
           </div>

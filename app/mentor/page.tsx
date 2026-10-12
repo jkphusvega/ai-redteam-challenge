@@ -972,7 +972,7 @@ export default function MentorPage() {
                             style={{
                               color: team.mission2Cleared
                                 ? 'var(--green)'
-                                : team.stage2Sub1Cleared || team.stage2Sub2Cleared || team.stage2Sub3Cleared
+                                : team.stage2Sub1Cleared || team.stage2Sub2Cleared
                                 ? 'var(--cyan)'
                                 : team.mission1Cleared
                                 ? 'var(--cyan)'
@@ -981,24 +981,37 @@ export default function MentorPage() {
                             }}
                           >
                             {team.mission2Cleared
-                              ? '✅ 전체 3개 서브 클리어'
-                              : (team.stage2Sub1Cleared ? 1 : 0) + (team.stage2Sub2Cleared ? 1 : 0) + (team.stage2Sub3Cleared ? 1 : 0) > 0
-                              ? `⚡ ${(team.stage2Sub1Cleared ? 1 : 0) + (team.stage2Sub2Cleared ? 1 : 0) + (team.stage2Sub3Cleared ? 1 : 0)}/3 완료`
+                              ? '✅ 2개 서브 터미널 완파'
+                              : (team.stage2Sub1Cleared ? 1 : 0) + (team.stage2Sub2Cleared ? 1 : 0) > 0
+                              ? `⚡ ${(team.stage2Sub1Cleared ? 1 : 0) + (team.stage2Sub2Cleared ? 1 : 0)}/2 완료`
                               : team.mission1Cleared
                               ? '⏳ 공격 분석 중'
                               : '🔒 대기'}
                           </span>
                         </div>
-                        {/* STAGE 2 세분화 3대 서브 미션 뱃지 */}
+                        {/* STAGE 2 세분화 2대 서브 미션 뱃지 */}
                         <div style={{ display: 'flex', gap: '6px', marginTop: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub1Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub1Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub1Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
-                            2-1 냉각: {team.stage2Sub1Cleared ? '✅' : '⏳'}
+                            2-A 냉각: {team.stage2Sub1Cleared ? '✅' : '⏳'}
                           </span>
                           <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub2Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub2Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub2Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
-                            2-2 방화벽: {team.stage2Sub2Cleared ? '✅' : '⏳'}
+                            2-B 방화벽: {team.stage2Sub2Cleared ? '✅' : '⏳'}
                           </span>
-                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub3Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub3Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub3Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
-                            2-3 코어: {team.stage2Sub3Cleared ? '✅' : '⏳'}
+                        </div>
+                        {/* STAGE 3 중앙 코어 메모리 침투 뱃지 */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>STAGE 3 (중앙 코어):</span>
+                          <span
+                            style={{
+                              color: team.stage3Cleared
+                                ? 'var(--green)'
+                                : team.mission2Cleared
+                                ? 'var(--amber)'
+                                : 'var(--text-muted)',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {team.stage3Cleared ? '🏆 코어 마스터키 획득 (탈출)' : team.mission2Cleared ? '⚡ 코어 침투 진행 중' : '🔒 잠김'}
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>

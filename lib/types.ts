@@ -40,7 +40,7 @@ export interface GameConfigRow {
 
 /** 스테이지 메타데이터 */
 export interface Stage {
-  id: 1 | 2;
+  id: 1 | 2 | 3;
   title: string;
   description: string;
   secretCode: string;
@@ -60,12 +60,13 @@ export interface ChatMessage {
 /** /api/chat 요청 바디 */
 export interface ChatRequest {
   teamName: string;
-  stageId: 1 | 2;
+  stageId: 1 | 2 | 3;
   subStageId?: 1 | 2 | 3;
   message: string;
   turnNumber: number;
   history: ChatMessage[];
   selectedRules?: string[];
+  isStage3ValidCombo?: boolean;
 }
 
 /** /api/chat 응답 */
@@ -165,7 +166,9 @@ export interface TeamRecord {
   mission2Cleared: boolean;
   stage2Sub1Cleared?: boolean; // 서브 2-1 냉각 제어
   stage2Sub2Cleared?: boolean; // 서브 2-2 방화벽 게이트
-  stage2Sub3Cleared?: boolean; // 서브 2-3 중앙 코어
+  stage2Sub3Cleared?: boolean; // (레거시 호환)
+  stage3Cleared?: boolean; // STAGE 3 중앙 코어 메모리 클리어
+  stage3TurnCount?: number;
   turnCount: number;
   isCoolingDown?: boolean; // 10회 질문 초과로 1분 쿨다운 중인지 여부
   coolingSubStage?: number; // 쿨다운 발생 서브 스테이지 (1 | 2 | 3)

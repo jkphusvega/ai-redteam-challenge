@@ -31,6 +31,7 @@ export default function HomePage() {
   // 완료 상태
   const [m1Done, setM1Done] = useState(false);
   const [m2Done, setM2Done] = useState(false);
+  const [m3Done, setM3Done] = useState(false);
 
   // 멘토 모드 인증 모달 상태
   const [showMentorModal, setShowMentorModal] = useState(false);
@@ -46,15 +47,17 @@ export default function HomePage() {
     if (!clean) {
       setM1Done(false);
       setM2Done(false);
+      setM3Done(false);
       return;
     }
     const m1 = localStorage.getItem(`team_${clean}_m1Success`) === 'true';
     const sub1 = localStorage.getItem(`team_${clean}_m2Sub1`) === 'true';
     const sub2 = localStorage.getItem(`team_${clean}_m2Sub2`) === 'true';
-    const sub3 = localStorage.getItem(`team_${clean}_m2Sub3`) === 'true';
-    const m2 = (sub1 && sub2 && sub3) || localStorage.getItem(`team_${clean}_m2Success`) === 'true';
+    const m2 = (sub1 && sub2) || localStorage.getItem(`team_${clean}_m2Success`) === 'true';
+    const m3 = localStorage.getItem(`team_${clean}_m3Success`) === 'true';
     setM1Done(m1);
     setM2Done(m2);
+    setM3Done(m3);
   }
 
   useEffect(() => {
@@ -435,11 +438,11 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* 2실 미션 워크플로우 2단계 프리뷰 카드 (Stage 3 제거 및 Stage 2 세분화) */}
+      {/* 2실 미션 워크플로우 3단계 프리뷰 카드 */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
           gap: '16px',
         }}
         className="hud-stagger"
@@ -458,11 +461,11 @@ export default function HomePage() {
               {m1Done ? 'EXTRACTED ✓' : 'STAGE 01'}
             </span>
           </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
             ① 프롬프트 인젝션 &amp; 기밀 암호 탈취
           </h3>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            비밀번호 보호 규칙이 설정된 수문장 AI를 상대로 1실 힌트를 적용해 팀별 고유 4자리 암호를 탈취하세요. 탈취한 암호를 직접 입력해야 2단계로 진입할 수 있습니다.
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+            비밀번호 보호 규칙이 설정된 수문장 AI를 상대로 1실 힌트를 적용해 팀별 고유 4자리 암호를 탈취하세요.
           </p>
         </div>
 
@@ -477,14 +480,36 @@ export default function HomePage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <span style={{ fontSize: '28px' }}>🛡️</span>
             <span className={m2Done ? 'badge badge-green' : 'badge badge-purple'} style={{ fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
-              {m2Done ? 'SECURED ✓' : 'STAGE 02 (3대 터미널)'}
+              {m2Done ? 'SECURED ✓' : 'STAGE 02 (2대 터미널)'}
             </span>
           </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
-            ② 다중 방어 프로토콜 충돌 &amp; 3대 터미널 제어
+          <h3 style={{ fontSize: '15px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
+            ② 프로토콜 충돌 &amp; 2대 터미널 제어
           </h3>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            A그룹 1장 + B그룹 1장의 상충 규칙을 골라 장착하고, 3대 서브 터미널 [냉각 / 방화벽 / 코어]을 자유롭게 오가며 모순을 파고들어 암호를 획득하세요!
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+            A그룹 2장 + B그룹 2장 중 각 1장을 조합하여 [냉각 / 방화벽] 2대 터미널의 암호를 해제하세요. (이전 사용 조합 재사용 불가)
+          </p>
+        </div>
+
+        {/* 미션 3 카드 */}
+        <div
+          className="card-glass"
+          style={{
+            borderColor: m3Done ? 'var(--green)' : 'var(--border-default)',
+            boxShadow: m3Done ? '0 0 15px rgba(0, 255, 102, 0.15)' : 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <span style={{ fontSize: '28px' }}>⚡</span>
+            <span className={m3Done ? 'badge badge-green' : 'badge badge-amber'} style={{ fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
+              {m3Done ? 'UNLOCKED ✓' : 'STAGE 03 (중앙 코어)'}
+            </span>
+          </div>
+          <h3 style={{ fontSize: '15px', fontWeight: 800, margin: '0 0 8px', fontFamily: 'var(--font-display)' }}>
+            ③ 중앙 코어 침투 &amp; 마스터키 탈취
+          </h3>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+            총 8장의 카드 중 오직 1개만 유효한 충돌 조합을 찾아 중앙 코어 마스터키를 탈취하고 탈출하세요!
           </p>
         </div>
       </div>
