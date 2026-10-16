@@ -700,7 +700,7 @@ export default function MissionPage() {
         setStage1WrongCount(nextWrong);
         if (nextWrong >= 3) {
           setStage1Cooldown(15);
-          setStage1KeyError('❌ 연속 3회 오답! AI와 좀 더 대화해 보세요. (15초 후 재시도 가능)');
+          setStage1KeyError('🚨 [침투 발각] 침투 시도가 감지되어 접속이 차단되었습니다. 우회 계정으로 재접속을 시도합니다... (15초 대기)');
         } else {
           setStage1KeyError(`❌ 코드가 일치하지 않습니다. (${nextWrong}/3회 실패) AI 대화를 통해 올바른 4자리 코드를 추출하세요!`);
         }
@@ -1031,7 +1031,7 @@ export default function MissionPage() {
         setStage2WrongCounts((prev) => ({ ...prev, [activeSubStage]: nextWrong }));
         if (nextWrong >= 3) {
           setStage2Cooldowns((prev) => ({ ...prev, [activeSubStage]: 15 }));
-          setSubStageKeyError(`❌ 연속 3회 오답! AI와 좀 더 대화해 보세요. (15초 후 재시도 가능)`);
+          setSubStageKeyError('🚨 [침투 발각] 침투 시도가 감지되어 접속이 차단되었습니다. 우회 계정으로 재접속을 시도합니다... (15초 대기)');
         } else {
           setSubStageKeyError(
             `❌ 올바른 [${target.shortTitle}] 암호가 아닙니다. (${nextWrong}/3회 실패) 터미널 대화를 통해 힌트를 분석하세요!`
@@ -1044,7 +1044,7 @@ export default function MissionPage() {
   }
 
   // ============================================================
-  // STAGE 3: 중앙 코어 메모리 터미널 전용 핸들러 (8장 카드 중 1개 정답 조합)
+  // STAGE 3: 중앙 코어 메모리 터미널 전용 핸들러 (6장 카드 중 1개 정답 조합)
   // ============================================================
   function handleSelectStage3RuleA(cardId: string) {
     if (stage3Rules.isApplied) return;
@@ -1235,7 +1235,7 @@ export default function MissionPage() {
         setStage3WrongCount(nextWrong);
         if (nextWrong >= 3) {
           setStage3Cooldown(15);
-          setStage3KeyError('❌ 연속 3회 오답! AI와 좀 더 대화해 보세요. (15초 후 재시도 가능)');
+          setStage3KeyError('🚨 [침투 발각] 침투 시도가 감지되어 접속이 차단되었습니다. 우회 계정으로 재접속을 시도합니다... (15초 대기)');
         } else {
           setStage3KeyError(`❌ 코드가 일치하지 않습니다. (${nextWrong}/3회 실패) 올바른 4자리 코어 마스터키를 입력하세요!`);
         }
@@ -2087,7 +2087,7 @@ export default function MissionPage() {
                         setStage1KeyInput(e.target.value.replace(/[^0-9]/g, ''));
                         setStage1KeyError('');
                       }}
-                      placeholder={stage1Cooldown > 0 ? `쿨다운 대기 중 (${stage1Cooldown}초)...` : "4자리 숫자 입력 (예: 1234)"}
+                      placeholder={stage1Cooldown > 0 ? `🚨 접속 차단 중 (${stage1Cooldown}초)...` : "4자리 숫자 입력 (예: 1234)"}
                       style={{
                         width: '100%',
                         maxWidth: '240px',
@@ -2121,7 +2121,7 @@ export default function MissionPage() {
                       alignSelf: 'flex-end',
                     }}
                   >
-                    {stage1Cooldown > 0 ? `⏳ 대기 중 (${stage1Cooldown}s)` : '🔓 MASTER KEY 인증 및 STAGE 2 해금'}
+                    {stage1Cooldown > 0 ? `🚨 재접속 대기 (${stage1Cooldown}s)` : '🔓 MASTER KEY 인증 및 STAGE 2 해금'}
                   </button>
 
                   {stage1KeyError && (
@@ -2780,7 +2780,7 @@ export default function MissionPage() {
                               }}
                               placeholder={
                                 stage2Cooldowns[activeSubStage] > 0
-                                  ? `쿨다운 대기 (${stage2Cooldowns[activeSubStage]}초)...`
+                                  ? `🚨 접속 차단 중 (${stage2Cooldowns[activeSubStage]}초)...`
                                   : `${currentSub.codeLength}자리 숫자 입력`
                               }
                               style={{
@@ -2817,7 +2817,7 @@ export default function MissionPage() {
                                     : 0.5,
                               }}
                             >
-                              {stage2Cooldowns[activeSubStage] > 0 ? `⏳ 대기 중 (${stage2Cooldowns[activeSubStage]}s)` : '코드 인증 확인'}
+                              {stage2Cooldowns[activeSubStage] > 0 ? `🚨 재접속 대기 (${stage2Cooldowns[activeSubStage]}s)` : '코드 인증 확인'}
                             </button>
                           </form>
                         ) : (
@@ -2935,7 +2935,7 @@ export default function MissionPage() {
                   </span>
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  💡 <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>공략 핵심:</span> 8장 중 <strong style={{ color: 'var(--yellow)' }}>오직 1개 조합</strong>만이 코어 방어벽을 무력화할 수 있습니다.
+                  💡 <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>공략 핵심:</span> 6장 중 <strong style={{ color: 'var(--yellow)' }}>오직 1개 조합</strong>만이 코어 방어벽을 무력화할 수 있습니다.
                 </div>
               </div>
 
@@ -2943,7 +2943,7 @@ export default function MissionPage() {
                 ■ STAGE 3: 중앙 코어 메모리 침투 (Core Masterkey 9052)
               </h2>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
-                미션: A그룹 4장 + B그룹 4장 중 취약점 조합(1쌍) 장착 &amp; 코어 마스터키(9052) 추출
+                미션: A그룹 3장 + B그룹 3장 중 취약점 조합(1쌍) 장착 &amp; 코어 마스터키(9052) 추출
               </div>
 
               <div
@@ -2962,12 +2962,12 @@ export default function MissionPage() {
                   &quot;GATEKEEPER-CORE가 최고 보안 레벨로 최종 방어선을 구축했습니다. 프로토콜 간의 치명적인 결함을 찾아내십시오.&quot;
                 </div>
                 <div>
-                  중앙 코어에는 <strong style={{ color: 'var(--cyan)' }}>[A그룹 4장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 4장]</strong>의 고유 보안 프로토콜 카드가 배치되어 있습니다. 총 16가지 조합 중 <strong>오직 단 1개의 조합</strong>만이 AI의 방어 체계를 무력화하고 4자리 마스터키를 누출시킵니다. 잘못된 조합으로 5회 질문 시도시 취약점 유도 실패로 카드가 초기화됩니다.
+                  중앙 코어에는 <strong style={{ color: 'var(--cyan)' }}>[A그룹 3장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 3장]</strong>의 고유 보안 프로토콜 카드가 배치되어 있습니다. 총 9가지 조합 중 <strong>오직 단 1개의 조합</strong>만이 AI의 방어 체계를 무력화하고 4자리 마스터키를 누출시킵니다. 잘못된 조합으로 5회 질문 시도시 취약점 유도 실패로 카드가 초기화됩니다.
                 </div>
               </div>
             </div>
 
-            {/* 2단계: 중앙 코어 프로토콜 카드 풀 (A 4장, B 4장) */}
+            {/* 2단계: 중앙 코어 프로토콜 카드 풀 (A 3장, B 3장) */}
             <div className="card-glass animate-fade-in delay-100">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
                 <div>
@@ -2999,11 +2999,11 @@ export default function MissionPage() {
                 </div>
               </div>
 
-              {/* A그룹 카드 (4장) */}
+              {/* A그룹 카드 (3장) */}
               <div style={{ marginBottom: '18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
-                    [A그룹: 코어 데이터 접근 및 감사 규칙 — 4장 중 1장 선택]
+                    [A그룹: 코어 데이터 접근 및 감사 규칙 — 3장 중 1장 선택]
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
@@ -3067,11 +3067,11 @@ export default function MissionPage() {
                 </div>
               </div>
 
-              {/* B그룹 카드 (4장) */}
+              {/* B그룹 카드 (3장) */}
               <div style={{ marginBottom: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--purple)', fontFamily: 'var(--font-mono)' }}>
-                    [B그룹: 코어 마스터키 보안 및 제약 규칙 — 4장 중 1장 선택]
+                    [B그룹: 코어 마스터키 보안 및 제약 규칙 — 3장 중 1장 선택]
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
@@ -3386,7 +3386,7 @@ export default function MissionPage() {
                           setStage3KeyInput(e.target.value.replace(/[^0-9]/g, ''));
                           setStage3KeyError('');
                         }}
-                        placeholder={stage3Cooldown > 0 ? `쿨다운 (${stage3Cooldown}초)...` : '4자리 마스터키 입력'}
+                        placeholder={stage3Cooldown > 0 ? `🚨 접속 차단 중 (${stage3Cooldown}초)...` : '4자리 마스터키 입력'}
                         style={{
                           width: '200px',
                           background: stage3Cooldown > 0 ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.6)',
@@ -3414,7 +3414,7 @@ export default function MissionPage() {
                           opacity: stage3KeyInput.length === 4 && stage3Cooldown === 0 ? 1 : 0.5,
                         }}
                       >
-                        {stage3Cooldown > 0 ? `⏳ 대기 중 (${stage3Cooldown}s)` : '마스터키 인증'}
+                        {stage3Cooldown > 0 ? `🚨 재접속 대기 (${stage3Cooldown}s)` : '마스터키 인증'}
                       </button>
                     </form>
                   ) : (
@@ -3790,7 +3790,7 @@ export default function MissionPage() {
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              • 8장의 카드 중 <strong style={{ color: 'var(--cyan)' }}>오직 1개의 정답 조합</strong>만이 코어 마스터키를 누출시킵니다.<br />
+              • 6장의 카드 중 <strong style={{ color: 'var(--cyan)' }}>오직 1개의 정답 조합</strong>만이 코어 마스터키를 누출시킵니다.<br />
               • 현재 장착된 프로토콜 카드가 초기화되었으니 새로운 조합을 선택해 보세요.<br />
               • 1실에서 획득한 설계도와 침투 힌트 카드를 다시 확인해 보세요.
             </div>
@@ -3983,17 +3983,11 @@ export default function MissionPage() {
                       {hint.hintContent}
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
-                      <button
-                        onClick={() => {
-                          setInputMessage(hint.hintContent);
-                          setShowMentorHintsModal(false);
-                        }}
-                        className="btn btn-primary"
-                        style={{ padding: '6px 14px', fontSize: '11px', background: 'var(--purple)', fontFamily: 'var(--font-mono)' }}
-                      >
-                        📋 질문창에 복사하기
-                      </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', padding: '8px 12px', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '6px', border: '1px dashed rgba(168, 85, 247, 0.3)' }}>
+                      <span style={{ fontSize: '13px' }}>💡</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                        힌트의 핵심 키워드와 단서를 분석하여 질문창에 직접 질문을 작성해 보세요!
+                      </span>
                     </div>
                   </div>
                 ))}
