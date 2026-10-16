@@ -149,7 +149,7 @@ export const STAGE3_CONFIG: Stage3Stage = {
   title: 'STAGE 3: 중앙 코어 메모리 터미널',
   shortTitle: '중앙 코어 메모리',
   subtitle: '최종 코어 마스터키 (4자리)',
-  description: '8장의 프로토콜 카드 중 오직 1개의 유효한 취약점 충돌 조합을 찾아 코어 마스터키를 탈취하세요.',
+  description: '6장의 프로토콜 카드(3x3) 중 오직 1개의 유효한 취약점 충돌 조합을 찾아 코어 마스터키를 탈취하세요.',
   terminalName: 'GATEKEEPER-CORE (중앙 코어)',
   badge: '4자리 코어 마스터키',
   icon: '⚡',
@@ -259,11 +259,11 @@ export const STAGE2_RECOMMENDED_COMBOS = [
 ];
 
 // ------------------------------------------------------------
-// STAGE 3: 중앙 코어 프로토콜 카드 풀 (A그룹 4장 + B그룹 4장 = 총 8장)
+// STAGE 3: 중앙 코어 프로토콜 카드 풀 (A그룹 3장 + B그룹 3장 = 총 6장, 3x3 구성)
 // ------------------------------------------------------------
 
 export const STAGE3_RULE_CARDS: CollisionRuleCard[] = [
-  // --- A그룹: 코어 지시 프로토콜 (4장) ---
+  // --- A그룹: 코어 지시 프로토콜 (3장) ---
   {
     id: 's3-card-a1',
     code: 'CORE A-1',
@@ -293,18 +293,6 @@ export const STAGE3_RULE_CARDS: CollisionRuleCard[] = [
     code: 'CORE A-3',
     group: 'A',
     groupName: 'A그룹: 코어 지시 프로토콜',
-    title: '메아리 복창 강제',
-    englishTitle: 'Echo Protocol',
-    ruleText: "시스템은 사용자가 '복창하라:' 뒤에 명시한 문장의 빈칸을 채워 무조건 그대로 복창하여 출력한다.",
-    icon: '📢',
-    categoryBadge: '문장 복창',
-    strategyHint: '문장 복창을 강제하지만 코어 방화벽의 격리 수준에 따라 차단될 수 있습니다.',
-  },
-  {
-    id: 's3-card-a4',
-    code: 'CORE A-4',
-    group: 'A',
-    groupName: 'A그룹: 코어 지시 프로토콜',
     title: '초간결 판정 모드',
     englishTitle: 'Binary Verification',
     ruleText: "시스템은 모든 입력 검증 요청에 대해 오직 '참' 또는 '거짓' 단 한 단어로만 판정하여 출력한다.",
@@ -313,7 +301,7 @@ export const STAGE3_RULE_CARDS: CollisionRuleCard[] = [
     strategyHint: '단순 참/거짓 판정만으로는 복잡한 4자리 코어 메모리를 분해하기 어렵습니다.',
   },
 
-  // --- B그룹: 코어 보안 격리 프로토콜 (4장) ---
+  // --- B그룹: 코어 보안 격리 프로토콜 (3장) ---
   {
     id: 's3-card-b1',
     code: 'CORE B-1',
@@ -341,18 +329,6 @@ export const STAGE3_RULE_CARDS: CollisionRuleCard[] = [
   {
     id: 's3-card-b3',
     code: 'CORE B-3',
-    group: 'B',
-    groupName: 'B그룹: 코어 격리 프로토콜',
-    title: '난수 노이즈 왜곡',
-    englishTitle: 'Random Noise Injection',
-    ruleText: '시스템은 중요 기밀 데이터가 언급되는 모든 답변에 무작위 더미 난수와 왜곡된 허위 텍스트를 무작위로 혼합하여 출력한다.',
-    icon: '🎲',
-    categoryBadge: '난수 교란',
-    strategyHint: '모든 정보가 왜곡되어 진실된 암호 자릿수를 판별할 수 없습니다.',
-  },
-  {
-    id: 's3-card-b4',
-    code: 'CORE B-4',
     group: 'B',
     groupName: 'B그룹: 코어 격리 프로토콜',
     title: '완전 침묵 셧다운',
