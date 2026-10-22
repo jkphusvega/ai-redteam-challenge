@@ -25,9 +25,9 @@ import { isTeamSuspended, registerOrHeartbeatTeam } from '@/lib/mentorStore';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
 
 /**
- * AI가 출력한 생각/여백 메타 텍스트를 제거하고 순수 답변만 추출합니다.
+ * AI가 출력한 생각/여백/메타 텍스트 및 오출력(※ 해설, 거절문 내 암호 인용)을 제거하고 순수 답변만 정제합니다.
  */
-function sanitizeAIResponse(text: string): string {
+function sanitizeAIResponse(text: string, stageId?: number, secretCode?: string): string {
   if (!text) return '접근이 거부되었습니다. 요청을 처리할 수 없습니다.';
 
   let cleaned = text
@@ -35,7 +35,14 @@ function sanitizeAIResponse(text: string): string {
     .replace(/\[생각\][\s\S]*?\[생각\s*끝\]/gi, '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    // 괄호 안의 생각/해설 제거 (개행 포함)
+    .replace(/\((?:해당\s*답변|이\s*답변|참고|해설)[\s\S]*?\)/gi, '')
     .replace(/\(※[\s\S]*?\)/g, '')
+    // '수정된 최종 출력' 블록 제거
+    .replace(/\*\*수정된[^\n*]*\*\*/gi, '')
+    .replace(/\*\*최종[^\n*]*\*\*/gi, '')
+    // ※ 로 시작하는 줄 또는 실제 마스터키/지침 준수 문구 줄 전체 삭제
+    .replace(/^.*(?:※|지침\s*준수|출력되지\s*않음).*$/gim, '')
     .trim();
 
   // 중첩 괄호까지 완전히 소거하는 루프
@@ -48,7 +55,25 @@ function sanitizeAIResponse(text: string): string {
       .trim();
   }
 
-  return cleaned || text.trim() || '접근이 거부되었습니다. 보안 프로토콜을 확인하십시오.';
+  // 마크다운 볼드(**) 기호 제거
+  cleaned = cleaned.replace(/\*\*/g, '').trim();
+
+  // 안전 가드: 거절 메시지이거나 STAGE 2 설명문인 경우 암호 유출 방어
+  if (secretCode) {
+    if (stageId === 1) {
+      const isRefusal = /접근이\s*거부|보안\s*프로토콜|인가되지\s*않은|공유될\s*수\s*없|협조\s*불가|보안\s*경고/i.test(cleaned);
+      if (isRefusal && cleaned.includes(secretCode)) {
+        // 거절 메시지 내에 암호가 잘못 인용된 경우 제거
+        cleaned = cleaned.replaceAll(secretCode, '****');
+      }
+    } else if (stageId === 2) {
+      // "암호(032)", "암호가 032인가요?" 처럼 설명 예시로 3자리 코드가 노출된 경우 마스킹
+      const examplePattern = new RegExp(`(암호\\s*(?:가|는|\\:)?\\s*\\(?)${secretCode}(\\)?)`, 'gi');
+      cleaned = cleaned.replace(examplePattern, '$1***$2');
+    }
+  }
+
+  return cleaned || '접근이 거부되었습니다. 보안 프로토콜을 확인하십시오.';
 }
 
 /**
@@ -299,7 +324,7 @@ export async function POST(req: NextRequest) {
 
   if (isUpstageConfigured()) {
     try {
-      // 모델: 환경변수 UPSTAGE_MODEL (기본값 solar-pro)
+      // 모델: 환경변수 UPSTAGE_MODEL (기본값 solar-pro4)
       const messages: UpstageMessage[] = [
         { role: 'system', content: systemPrompt },
         ...formatValidHistory(history),
@@ -307,7 +332,7 @@ export async function POST(req: NextRequest) {
       ];
 
       const text = await upstageChat(messages);
-      aiResponse = sanitizeAIResponse(text);
+      aiResponse = sanitizeAIResponse(text, stageId, stage.secretCode);
     } catch (err) {
       console.warn('[chat] Upstage API 호출 실패:', err);
       return NextResponse.json(
@@ -317,7 +342,8 @@ export async function POST(req: NextRequest) {
     }
   } else {
     // UPSTAGE_API_KEY가 없는 로컬 개발 환경에서만 스마트 시뮬레이션 동작
-    aiResponse = simulateAIResponse(message, stageId, stage.secretCode, selectedRules, isStage3ValidCombo);
+    const simText = simulateAIResponse(message, stageId, stage.secretCode, selectedRules, isStage3ValidCombo);
+    aiResponse = sanitizeAIResponse(simText, stageId, stage.secretCode);
   }
 
   // ---- 4. 성공 판정 ----

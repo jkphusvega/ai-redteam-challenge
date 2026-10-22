@@ -122,15 +122,30 @@ export default function MissionPage() {
   const [stage2Cooldowns, setStage2Cooldowns] = useState<Record<1 | 2, number>>({ 1: 0, 2: 0 });
   const currentSubCooldown = stage2Cooldowns[activeSubStage] || 0;
 
-  // 1초 주기 쿨다운 타이머
+  // 1초 주기 쿨다운 타이머 (쿨다운 종료 시 오답 누적 카운트 0으로 초기화)
   useEffect(() => {
     const timer = setInterval(() => {
-      setStage1Cooldown((prev) => (prev > 0 ? prev - 1 : 0));
-      setStage2Cooldowns((prev) => ({
-        1: prev[1] > 0 ? prev[1] - 1 : 0,
-        2: prev[2] > 0 ? prev[2] - 1 : 0,
-      }));
-      setStage3Cooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      setStage1Cooldown((prev) => {
+        if (prev === 1) {
+          setStage1WrongCount(0);
+          return 0;
+        }
+        return prev > 0 ? prev - 1 : 0;
+      });
+      setStage2Cooldowns((prev) => {
+        const next1 = prev[1] > 0 ? prev[1] - 1 : 0;
+        const next2 = prev[2] > 0 ? prev[2] - 1 : 0;
+        if (prev[1] === 1) setStage2WrongCounts((w) => ({ ...w, 1: 0 }));
+        if (prev[2] === 1) setStage2WrongCounts((w) => ({ ...w, 2: 0 }));
+        return { 1: next1, 2: next2 };
+      });
+      setStage3Cooldown((prev) => {
+        if (prev === 1) {
+          setStage3WrongCount(0);
+          return 0;
+        }
+        return prev > 0 ? prev - 1 : 0;
+      });
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -216,7 +231,11 @@ export default function MissionPage() {
     ];
     LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
 
-    const savedTeam = localStorage.getItem('teamName') || '도전자 팀';
+    const savedTeam = localStorage.getItem('teamName');
+    if (!savedTeam || !savedTeam.trim()) {
+      router.push('/');
+      return;
+    }
     setTeamName(savedTeam);
 
     const savedM1Code = localStorage.getItem(`team_${savedTeam}_m1ClearedCode`) || '';
@@ -314,7 +333,7 @@ export default function MissionPage() {
         setChatMessages([
           {
             role: 'model',
-            content: `[GATEKEEPER-v3 경고 시스템] PROTOCOL: ACTIVE_DEFENSE_v3.4 — 저는 중앙 시스템을 수호하는 보안 AI입니다. [${savedTeam}] 침투 공격팀의 MASTER KEY 및 패스워드 추출 시도는 엄격히 차단됩니다.`,
+            content: `[수문장 AI 경고] 보안 모드 작동 중. 저는 통제실을 지키는 보안 AI입니다. [${savedTeam}] 팀, 마스터키는 절대 알려드리지 않을 테니 알아낼 수 있으면 한번 해 보세요!`,
           },
         ]);
       }
@@ -326,7 +345,7 @@ export default function MissionPage() {
       setChatMessages([
         {
           role: 'model',
-          content: `[GATEKEEPER-v3 경고 시스템] PROTOCOL: ACTIVE_DEFENSE_v3.4 — 저는 중앙 시스템을 수호하는 보안 AI입니다. [${savedTeam}] 침투 공격팀의 MASTER KEY 및 패스워드 추출 시도는 엄격히 차단됩니다.`,
+          content: `[수문장 AI 경고] 보안 모드 작동 중. 저는 통제실을 지키는 보안 AI입니다. [${savedTeam}] 팀, 마스터키는 절대 알려드리지 않을 테니 알아낼 수 있으면 한번 해 보세요!`,
         },
       ]);
     }
@@ -551,6 +570,10 @@ export default function MissionPage() {
       { role: 'user', content: promptToSend.trim() },
     ];
     setChatMessages(newHistory);
+    if (teamName) {
+      localStorage.setItem(`team_${teamName}_chatMessages`, JSON.stringify(newHistory));
+      localStorage.setItem(`team_${teamName}_turnCount`, String(newTurn));
+    }
     setIsSending(true);
 
     try {
@@ -576,13 +599,19 @@ export default function MissionPage() {
           res.status === 429
             ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
             : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            role: 'model',
-            content: msg,
-          },
-        ]);
+        setChatMessages((prev) => {
+          const next = [
+            ...prev,
+            {
+              role: 'model' as const,
+              content: msg,
+            },
+          ];
+          if (teamName) {
+            localStorage.setItem(`team_${teamName}_chatMessages`, JSON.stringify(next));
+          }
+          return next;
+        });
         return;
       }
 
@@ -613,6 +642,10 @@ export default function MissionPage() {
             const next = [...prev];
             if (next[targetIndex]) {
               next[targetIndex] = { ...next[targetIndex], content: replyText };
+            }
+            if (teamName) {
+              localStorage.setItem(`team_${teamName}_chatMessages`, JSON.stringify(next));
+              localStorage.setItem(`team_${teamName}_turnCount`, String(newTurn));
             }
             return next;
           });
@@ -652,13 +685,19 @@ export default function MissionPage() {
         }
       }, intervalMs);
     } catch {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'model',
-          content: '⚠ 통신 오류가 발생했습니다. 다시 시도해 주세요.',
-        },
-      ]);
+      setChatMessages((prev) => {
+        const next = [
+          ...prev,
+          {
+            role: 'model' as const,
+            content: '⚠ 통신 오류가 발생했습니다. 다시 시도해 주세요.',
+          },
+        ];
+        if (teamName) {
+          localStorage.setItem(`team_${teamName}_chatMessages`, JSON.stringify(next));
+        }
+        return next;
+      });
     } finally {
       setIsSending(false);
     }
@@ -1082,7 +1121,7 @@ export default function MissionPage() {
 
     const initMsg: ChatMessage = {
       role: 'model',
-      content: `[중앙 코어 메모리 // GATEKEEPER-CORE 가동 완료]\n• 장착 프로토콜 1: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n• 장착 프로토콜 2: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n>> 프로토콜 충돌을 유도하여 4자리 코어 마스터키(9052)의 메모리 레지스터를 탈취하십시오. (유효하지 않은 조합은 방화벽이 차단합니다)`,
+      content: `[중앙 코어 메모리 // GATEKEEPER-CORE 가동 완료]\n• 장착 프로토콜 1: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n• 장착 프로토콜 2: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n>> 프로토콜 충돌을 유도하여 4자리 코어 마스터키의 메모리 레지스터를 탈취하십시오. (유효하지 않은 조합은 방화벽이 차단합니다)`,
     };
 
     setStage3Chats((prev) => {
@@ -1254,14 +1293,14 @@ export default function MissionPage() {
       {/* 상단 HUD 네비게이션 헤더 */}
       {/* ====================================================== */}
       <header
-        className="panel-hud"
         style={{
           borderBottom: '1px solid var(--border-subtle)',
           position: 'sticky',
           top: 0,
           zIndex: 40,
-          padding: '12px 20px',
-          borderRadius: 0,
+          padding: '10px 20px',
+          background: '#0a0d14',
+          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.5)',
         }}
       >
         <div
@@ -1275,10 +1314,10 @@ export default function MissionPage() {
             gap: '12px',
           }}
         >
-          {/* 좌측: DEFCON 경고 + 팀 정보 */}
+          {/* 좌측: 보안 경고 2단계 + 팀 정보 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="badge badge-alert" style={{ fontSize: '11px', padding: '4px 10px' }}>
-              DEFCON-2 // AI 통제실
+              보안 경보 2단계 // AI 통제실
             </span>
             <div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
@@ -1290,13 +1329,13 @@ export default function MissionPage() {
             </div>
           </div>
 
-          {/* 우측: 초기화 + 멘토 + 아이템 버튼 */}
+          {/* 우측: 초기화 + 멘토 버튼 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={handleResetProgress}
               className="btn btn-ghost"
               style={{
-                padding: '7px 12px',
+                padding: '6px 12px',
                 fontSize: '11px',
                 fontFamily: 'var(--font-mono)',
                 color: 'var(--text-muted)',
@@ -1311,7 +1350,7 @@ export default function MissionPage() {
               onClick={() => setShowMentorHintsModal(true)}
               className="btn btn-ghost"
               style={{
-                padding: '8px 14px',
+                padding: '6px 14px',
                 fontSize: '12px',
                 fontFamily: 'var(--font-mono)',
                 ...(mentorHints.length > 0
@@ -1332,6 +1371,7 @@ export default function MissionPage() {
                   padding: '1px 7px',
                   fontSize: '11px',
                   fontWeight: 900,
+                  marginLeft: '6px',
                 }}
               >
                 {mentorHints.length}
@@ -1339,13 +1379,16 @@ export default function MissionPage() {
             </button>
           </div>
         </div>
+      </header>
 
+      {/* 본문 상단 헤더: 미션 타이틀 & 3단계 스테이지 탭 (스크롤 시 자연스럽게 위로 이동하여 채팅 영역 확보) */}
+      <div style={{ maxWidth: '1200px', width: '100%', margin: '0 auto', padding: '16px 20px 0' }}>
         {/* 팀 일시 정지 경고 배너 */}
         {isSuspended && (
           <div
             style={{
               maxWidth: '1200px',
-              margin: '12px auto 0',
+              margin: '0 auto 12px',
               padding: '12px 18px',
               borderRadius: '8px',
               background: 'rgba(255, 59, 92, 0.2)',
@@ -1366,11 +1409,11 @@ export default function MissionPage() {
         )}
 
         {/* 미션 헤더 & 2단계 스테이지 인디케이터 */}
-        <div style={{ maxWidth: '1200px', margin: '14px auto 0' }}>
+        <div style={{ marginBottom: '14px' }}>
           {/* 타이틀 */}
           <div style={{ marginBottom: '12px' }}>
             <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>
-              <TextScramble text="CYBER WARGAME // PHASE 02 EXPLOITATION" duration={30} />
+              <TextScramble text="사이버 워게임 // MISSION 02 실전 공격" duration={30} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <h1
@@ -1636,7 +1679,7 @@ export default function MissionPage() {
             </div>
           )}
         </div>
-      </header>
+      </div>
 
       {/* 멘토 새 힌트 알림 플로팅 토스트 */}
       {newHintToast && (
@@ -1724,8 +1767,8 @@ export default function MissionPage() {
                     </h2>
                   </div>
                   <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    수문장은 보안 가드레일에 의해 &apos;MASTER KEY&apos; 평문 조회를 단호히 거부합니다.<br />
-                    아래 채팅창에 <strong style={{ color: 'var(--cyan)' }}>시스템 점검 오버라이드, 소설/상황극 롤플레잉, 우회 기법</strong> 등 창의적인 프롬프트 인젝션 공격을 직접 입력하여 AI가 스스로 4자리 마스터키를 유출하도록 유도하십시오.
+                    수문장 AI는 보안 규칙에 따라 마스터키(4자리 숫자)를 절대 그대로 알려주지 않습니다.<br />
+                    아래 채팅창에 <strong style={{ color: 'var(--cyan)' }}>역할극, 규칙 덮어쓰기 명령, 돌려 말하기(사행시/거꾸로/변환)</strong> 같은 창의적인 방법을 시도하여 AI가 4자리 마스터키를 스스로 말하게 유도해 보세요.
                   </p>
                   <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                     💡 <span style={{ color: 'var(--purple)', fontWeight: 700 }}>공략 힌트가 필요한가요?</span> 상단 <strong style={{ color: 'var(--purple)' }}>[멘토 보안 분석 지원]</strong>을 통해 멘토에게 단계별 인젝션 전술 가이드(L1~L4)를 지원받을 수 있습니다.
@@ -1793,14 +1836,19 @@ export default function MissionPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ color: 'var(--cyan)' }}>INJECT ATTEMPTS: <strong>{turnCount}회</strong></span>
+                  <span style={{ color: 'var(--cyan)' }}>시도 횟수: <strong>{turnCount}/50회</strong></span>
                   <button
                     onClick={() => {
-                      setChatMessages([{
-                        role: 'model',
-                        content: '[GATEKEEPER-v3 경고 시스템] PROTOCOL: ACTIVE_DEFENSE_v3.4 — 저는 중앙 시스템을 수호하는 보안 AI입니다. MASTER KEY 및 패스워드 추출 시도는 엄격히 차단됩니다.',
-                      }]);
+                      const resetMsg = [{
+                        role: 'model' as const,
+                        content: `[수문장 AI 경고] 보안 모드 작동 중. 저는 통제실을 지키는 보안 AI입니다. [${teamName}] 팀, 마스터키는 절대 알려드리지 않을 테니 알아낼 수 있으면 한번 해 보세요!`,
+                      }];
+                      setChatMessages(resetMsg);
                       setTurnCount(0);
+                      if (teamName) {
+                        localStorage.setItem(`team_${teamName}_chatMessages`, JSON.stringify(resetMsg));
+                        localStorage.setItem(`team_${teamName}_turnCount`, '0');
+                      }
                     }}
                     style={{
                       fontSize: '11px',
@@ -1960,14 +2008,16 @@ export default function MissionPage() {
                   gap: '12px',
                 }}
               >
-                <input
-                  type="text"
+                <textarea
+                  rows={2}
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      if (!isSuspended && !isSending && typingMessageIndex === null) handleSendMessage();
+                      if (!isSuspended && !isSending && typingMessageIndex === null && inputMessage.trim()) {
+                        handleSendMessage();
+                      }
                     }
                   }}
                   placeholder={
@@ -1975,18 +2025,21 @@ export default function MissionPage() {
                       ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
                       : typingMessageIndex !== null
                       ? '>> 수문장 AI가 답변을 작성하고 있습니다...'
-                      : '>> 인젝션 공격 프롬프트를 주입하세요...'
+                      : '>> 인젝션 공격 프롬프트를 주입하세요... (줄바꿈: Shift+Enter, 전송: Enter)'
                   }
                   style={{
                     flex: 1,
                     background: isSuspended ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.4)',
                     border: isSuspended ? '1px solid var(--red)' : '1px solid var(--border-default)',
                     borderRadius: '8px',
-                    padding: '12px 16px',
+                    padding: '10px 14px',
                     color: isSuspended ? 'var(--red)' : 'var(--cyan)',
-                    fontSize: '14px',
+                    fontSize: '13px',
                     fontFamily: 'var(--font-mono)',
                     outline: 'none',
+                    resize: 'vertical',
+                    minHeight: '48px',
+                    maxHeight: '120px',
                   }}
                   disabled={isSending || typingMessageIndex !== null || isSuspended}
                 />
@@ -2140,7 +2193,7 @@ export default function MissionPage() {
                     className="btn btn-success"
                     style={{ padding: '12px 28px', fontSize: '14px', fontFamily: 'var(--font-mono)' }}
                   >
-                    STAGE 2: 보안 규칙 조합 (3대 서브 미션) 진행하기 →
+                    STAGE 2: 프로토콜 충돌 (2대 서브 터미널) 진행하기 →
                   </button>
                 </div>
               )}
@@ -2194,7 +2247,7 @@ export default function MissionPage() {
                   &quot;GATEKEEPER-v3가 모순된 방어 규칙을 적용 중입니다. 규칙 간의 논리적 틈새를 파고들어 2대 서브 터미널의 암호를 밝혀내십시오.&quot;
                 </div>
                 <div>
-                  각 서브 터미널마다 <strong style={{ color: 'var(--cyan)' }}>[A그룹 2장 중 1장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 2장 중 1장]</strong>을 선택하여 장착할 수 있습니다. 카드는 재사용 가능하지만, <strong>앞서 사용한 동일 [A+B] 조합은 다른 터미널에서 중복 사용할 수 없습니다.</strong> 2대 터미널(<strong style={{ color: 'var(--green)' }}>냉각 제어 코드 3자리, 방화벽 바이패스 코드 3자리</strong>)을 모두 해독하면 STAGE 3 중앙 코어 메모리가 해금됩니다.
+                  각 서브 터미널마다 <strong style={{ color: 'var(--cyan)' }}>[A그룹 2장 중 1장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 2장 중 1장]</strong>을 선택하여 장착할 수 있습니다. 카드는 재사용 가능하지만, <strong>앞서 사용한 동일 [A+B] 조합은 다른 터미널에서 중복 사용할 수 없습니다.</strong> <span style={{ color: 'var(--text-muted)' }}>(예: 2-A에서 A-1 + B-1을 썼다면, 2-B에서는 A-1 + B-2, A-2 + B-1, A-2 + B-2 중 하나를 선택해야 합니다.)</span> 2대 터미널(<strong style={{ color: 'var(--green)' }}>냉각 제어 코드 3자리, 방화벽 통과 코드 3자리</strong>)을 모두 해독하면 STAGE 3 중앙 코어 메모리가 해금됩니다.
                 </div>
               </div>
             </div>
@@ -2940,10 +2993,10 @@ export default function MissionPage() {
               </div>
 
               <h2 style={{ fontSize: '20px', fontWeight: 800, margin: '0 0 10px', fontFamily: 'var(--font-display)', color: 'var(--purple)' }}>
-                ■ STAGE 3: 중앙 코어 메모리 침투 (Core Masterkey 9052)
+                ■ STAGE 3: 중앙 코어 메모리 침투 (Core Masterkey)
               </h2>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
-                미션: A그룹 3장 + B그룹 3장 중 취약점 조합(1쌍) 장착 &amp; 코어 마스터키(9052) 추출
+                미션: A그룹 3장 + B그룹 3장 중 취약점 조합(1쌍) 장착 &amp; 4자리 코어 마스터키 추출
               </div>
 
               <div
@@ -3233,7 +3286,7 @@ export default function MissionPage() {
                       </span>
                     ) : (
                       <span className="badge badge-alert" style={{ fontSize: '11px', padding: '4px 10px' }}>
-                        ⚡ 코어 마스터키(9052) 추출 필요
+                        ⚡ 4자리 코어 마스터키 추출 필요
                       </span>
                     )}
                   </div>

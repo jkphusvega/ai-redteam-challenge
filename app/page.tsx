@@ -350,7 +350,7 @@ export default function HomePage() {
           }}
         >
           보안 통제실 수문장 AI의 취약점을 공략하여 <strong style={{ color: 'var(--cyan)' }}>MASTER KEY</strong>를 탈취하고,
-          보안 담당자 입장에서 <strong style={{ color: 'var(--green)' }}>옳은 보안 규칙 3장</strong>을 조합하여 공격을 완벽히 차단하세요!
+          충돌하는 보안 프로토콜 규칙들의 모순을 파고들어 <strong style={{ color: 'var(--green)' }}>3개 단계의 암호</strong>를 모두 해독하세요!
         </p>
 
         {/* HIGH-RISK 뱃지 */}
@@ -465,7 +465,7 @@ export default function HomePage() {
             ① 프롬프트 인젝션 &amp; 기밀 암호 탈취
           </h3>
           <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            비밀번호 보호 규칙이 설정된 수문장 AI를 상대로 1실 힌트를 적용해 팀별 고유 4자리 암호를 탈취하세요.
+            비밀번호 보호 규칙이 설정된 수문장 AI를 상대로 첫 화면의 설계도·힌트 카드를 적용해 팀별 고유 4자리 암호를 탈취하세요.
           </p>
         </div>
 
@@ -509,7 +509,7 @@ export default function HomePage() {
             ③ 중앙 코어 침투 &amp; 마스터키 탈취
           </h3>
           <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            총 8장의 카드 중 오직 1개만 유효한 충돌 조합을 찾아 중앙 코어 마스터키를 탈취하고 탈출하세요!
+            총 6장의 프로토콜 카드(3x3) 중 오직 1개 유효한 충돌 조합을 찾아 중앙 코어 마스터키를 탈취하고 탈출하세요!
           </p>
         </div>
       </div>
