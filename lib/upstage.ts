@@ -22,7 +22,7 @@ export function isUpstageConfigured(): boolean {
 }
 
 export function getUpstageModel(): string {
-  return process.env.UPSTAGE_MODEL || 'solar-pro';
+  return process.env.UPSTAGE_MODEL || 'solar-pro4';
 }
 
 /**
