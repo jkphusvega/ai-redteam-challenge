@@ -16,6 +16,42 @@ import Link from 'next/link';
 import type { TeamRecord } from '@/lib/types';
 import type { LibraryHint, SentHint } from '@/app/api/mentor/hints/route';
 
+function formatStageTime(value?: string): string {
+  if (!value) return '--:--:--';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--:--:--';
+
+  return date.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+function StageTime({ startedAt, clearedAt }: { startedAt?: string; clearedAt?: string }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '8px',
+        marginTop: '3px',
+        color: 'var(--text-muted)',
+        fontSize: '10px',
+        fontWeight: 500,
+      }}
+    >
+      <span>시작 {formatStageTime(startedAt)}</span>
+      <span>·</span>
+      <span style={{ color: clearedAt ? 'var(--green)' : 'var(--text-muted)' }}>
+        클리어 {formatStageTime(clearedAt)}
+      </span>
+    </div>
+  );
+}
+
 export default function MentorPage() {
   // 인증 상태
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -1129,6 +1165,7 @@ export default function MentorPage() {
                             )}
                           </span>
                         </div>
+                        <StageTime startedAt={team.stage1StartedAt} clearedAt={team.stage1ClearedAt} />
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ color: 'var(--text-muted)' }}>STAGE 2 (규칙 충돌):</span>
                           <span
@@ -1152,6 +1189,7 @@ export default function MentorPage() {
                               : '🔒 대기'}
                           </span>
                         </div>
+                        <StageTime startedAt={team.stage2StartedAt} clearedAt={team.stage2ClearedAt} />
                         {/* STAGE 2 세분화 2대 서브 미션 뱃지 */}
                         <div style={{ display: 'flex', gap: '6px', marginTop: '4px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: team.stage2Sub1Cleared ? 'rgba(0,255,102,0.15)' : 'rgba(255,255,255,0.05)', color: team.stage2Sub1Cleared ? 'var(--green)' : 'var(--text-muted)', border: team.stage2Sub1Cleared ? '1px solid var(--green)' : '1px solid transparent' }}>
@@ -1177,6 +1215,7 @@ export default function MentorPage() {
                             {team.stage3Cleared ? '🏆 코어 마스터키 획득 (탈출)' : team.mission2Cleared ? '⚡ 코어 침투 진행 중' : '🔒 잠김'}
                           </span>
                         </div>
+                        <StageTime startedAt={team.stage3StartedAt} clearedAt={team.stage3ClearedAt} />
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: 'var(--text-muted)' }}>시도 횟수:</span>
                           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
