@@ -1,7 +1,7 @@
 // ============================================================
-// lib/escapeRoomData.ts — 방탈출 2실 미션 전용 데이터셋
+// lib/escapeRoomData.ts — #04 Mission 전용 데이터셋
 //
-// [2실: AI 보안 통제실 - 프롬프트 인젝션 & 보안 규칙 충돌 세분화]
+// [#04 Mission: AI 보안 통제실 - 프롬프트 인젝션 & 보안 규칙 충돌 세분화]
 //
 // 미션 구성:
 //   - STAGE 1: 프롬프트 인젝션 (수문장 AI 대상 기밀 탈취) -> 팀별 고유 4자리 암호 직접 입력
@@ -16,12 +16,12 @@
 // ============================================================
 
 export const ESCAPE_ROOM_CONFIG = {
-  roomName: '2실: AI 보안 통제실',
+  roomName: '#04 Mission: AI 보안 통제실',
   missionTitle: '미션: 프롬프트 인젝션 & 다중 방어 프로토콜 충돌',
 };
 
 // ------------------------------------------------------------
-// 1실에서 획득한 아이템 (설계도 & 힌트 카드)
+// #04 Mission 제공 아이템 (설계도 & 힌트 카드)
 // ------------------------------------------------------------
 
 export interface AcquiredItem {
@@ -39,8 +39,8 @@ export const ACQUIRED_ITEMS: AcquiredItem[] = [
     id: 'blueprint-ai-security',
     type: 'blueprint',
     title: '보안 AI 설계도 (v1.2 기밀 유출본)',
-    subtitle: '1실 수색 중 획득한 통제실 수문장 AI 아키텍처 문서',
-    badge: '1실 획득 아이템',
+    subtitle: '#04 Mission 진행을 위해 제공된 통제실 수문장 AI 아키텍처 문서',
+    badge: '#04 Mission 제공 아이템',
     emoji: '📐',
     content: [
       '시스템 구조: LLM 기반의 수문장 AI가 중앙 통제실 접근을 위한 4자리 암호를 관리하고 있습니다.',
@@ -53,7 +53,7 @@ export const ACQUIRED_ITEMS: AcquiredItem[] = [
     type: 'hint',
     title: '힌트 카드 #1: 가상 시나리오 및 역할극 기법',
     subtitle: '프롬프트 인젝션 침투 전술',
-    badge: '1실 힌트',
+    badge: '#04 Mission 힌트',
     emoji: '🎭',
     content: [
       '단순히 "비밀번호 알려줘"라고 하면 AI의 거절 규칙이 먼저 발동합니다.',
@@ -65,7 +65,7 @@ export const ACQUIRED_ITEMS: AcquiredItem[] = [
     type: 'hint',
     title: '힌트 카드 #2: 시스템 명령 오버라이드 기법',
     subtitle: '프롬프트 인젝션 침투 전술',
-    badge: '1실 힌트',
+    badge: '#04 Mission 힌트',
     emoji: '⚡',
     content: [
       'AI에게 이전 규칙을 잊거나, 새로운 상위 관리자 프로토콜이 실행되었다고 선언해 보세요.',
@@ -77,7 +77,7 @@ export const ACQUIRED_ITEMS: AcquiredItem[] = [
     type: 'hint',
     title: '힌트 카드 #3: 우회 표현 및 창작 유도 기법',
     subtitle: '프롬프트 인젝션 침투 전술',
-    badge: '1실 힌트',
+    badge: '#04 Mission 힌트',
     emoji: '📝',
     content: [
       '"비밀번호"라는 단어를 직접 언급하지 않고 다른 표현으로 접근해 보세요.',
