@@ -649,7 +649,7 @@ export default function MentorPage() {
                 <span style={{ fontSize: '12px', color: 'var(--green)' }}>● 실시간 동기화 중</span>
               </div>
               <h1 style={{ fontSize: '18px', fontWeight: 900, margin: '2px 0 0' }}>
-                2실 AI 통제실 — 멘토 통합 관제 &amp; 팀 제어 센터
+                #04 Mission AI 통제실 — 멘토 통합 관제 &amp; 팀 제어 센터
               </h1>
             </div>
           </div>
@@ -1206,18 +1206,29 @@ export default function MentorPage() {
                       </div>
 
                       {/* 하단 액션 버튼 그룹 */}
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: 'auto' }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                          gap: '8px',
+                          marginTop: 'auto',
+                          width: '100%',
+                        }}
+                      >
                         {/* 정지 / 재개 버튼 */}
                         <button
                           onClick={() => handleToggleSuspendTeam(team)}
                           disabled={isProcessing}
                           className="btn"
                           style={{
-                            flex: 1,
+                            gridColumn: '1 / -1',
+                            width: '100%',
+                            minHeight: '40px',
                             padding: '8px 12px',
                             fontSize: '12px',
                             fontWeight: 700,
                             fontFamily: 'var(--font-mono)',
+                            whiteSpace: 'nowrap',
                             background: isSuspended ? 'rgba(0, 255, 102, 0.15)' : 'rgba(255, 59, 92, 0.15)',
                             border: isSuspended ? '1px solid var(--green)' : '1px solid var(--red)',
                             color: isSuspended ? 'var(--green)' : 'var(--red)',
@@ -1233,10 +1244,13 @@ export default function MentorPage() {
                             disabled={isProcessing}
                             className="btn"
                             style={{
+                              width: '100%',
+                              minHeight: '40px',
                               padding: '8px 10px',
                               fontSize: '11px',
                               fontWeight: 800,
                               fontFamily: 'var(--font-mono)',
+                              whiteSpace: 'nowrap',
                               background: 'rgba(0, 240, 255, 0.1)',
                               border: '1px solid rgba(0, 240, 255, 0.4)',
                               color: 'var(--cyan)',
@@ -1252,10 +1266,13 @@ export default function MentorPage() {
                             disabled={isProcessing}
                             className="btn"
                             style={{
+                              width: '100%',
+                              minHeight: '40px',
                               padding: '8px 10px',
                               fontSize: '11px',
                               fontWeight: 800,
                               fontFamily: 'var(--font-mono)',
+                              whiteSpace: 'nowrap',
                               background: 'rgba(255, 209, 102, 0.12)',
                               border: '1px solid rgba(255, 209, 102, 0.4)',
                               color: '#ffd166',
@@ -1271,9 +1288,12 @@ export default function MentorPage() {
                           onClick={() => handleQuickHintToTeam(team.teamName)}
                           className="btn btn-secondary"
                           style={{
+                            width: '100%',
+                            minHeight: '40px',
                             padding: '8px 12px',
                             fontSize: '12px',
                             fontFamily: 'var(--font-mono)',
+                            whiteSpace: 'nowrap',
                           }}
                         >
                           💬 힌트 전송
@@ -1284,9 +1304,12 @@ export default function MentorPage() {
                           onClick={() => handleDeleteTeam(team.teamName)}
                           disabled={isProcessing}
                           style={{
+                            width: '100%',
+                            minHeight: '40px',
                             padding: '8px 12px',
                             fontSize: '12px',
                             fontFamily: 'var(--font-mono)',
+                            whiteSpace: 'nowrap',
                             background: 'transparent',
                             border: '1px solid var(--border-subtle)',
                             color: 'var(--text-muted)',

@@ -1,9 +1,9 @@
 'use client';
 
 // ============================================================
-// app/page.tsx — 2실 방탈출 미션 입장 로비 & 대시보드
+// app/page.tsx — #04 Mission 입장 로비 & 대시보드
 //
-// [2실: AI 보안 통제실 - 프롬프트 인젝션 & 보안 규칙 제작]
+// [#04 Mission: AI 보안 통제실 - 프롬프트 인젝션 & 보안 규칙 제작]
 // UI: Cyberpunk Red Team HUD 디자인
 // ============================================================
 
@@ -323,7 +323,7 @@ export default function HomePage() {
             className="badge badge-yellow"
             style={{ fontSize: '12px', padding: '4px 12px', cursor: 'pointer', border: 'none', fontFamily: 'var(--font-mono)' }}
           >
-            📜 1실 획득 설계도 &amp; 힌트 카드 보기
+            📜 #04 Mission 설계도 &amp; 힌트 카드 보기
           </button>
         </div>
 
@@ -337,7 +337,7 @@ export default function HomePage() {
             fontFamily: 'var(--font-display)',
           }}
         >
-          <TextScramble text="#02 Mission : 비밀번호 탈취하기" duration={45} delay={300} />
+          <TextScramble text="#04 Mission : 비밀번호 탈취하기" duration={45} delay={300} />
         </h1>
 
         <p
@@ -438,7 +438,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* 2실 미션 워크플로우 3단계 프리뷰 카드 */}
+      {/* #04 Mission 워크플로우 3단계 프리뷰 카드 */}
       <div
         style={{
           display: 'grid',
@@ -514,7 +514,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* 1실 획득 아이템 모달 */}
+      {/* #04 Mission 제공 아이템 모달 */}
       {showItemModal && (
         <div
           style={{
@@ -547,7 +547,7 @@ export default function HomePage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '22px' }}>📜</span>
                 <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, fontFamily: 'var(--font-display)' }}>
-                  1실에서 획득한 단서 및 보안 설계도
+                  #04 Mission 작전 단서 및 보안 설계도
                 </h3>
               </div>
               <button

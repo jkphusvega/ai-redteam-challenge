@@ -1,15 +1,15 @@
 'use client';
 
 // ============================================================
-// app/mission/page.tsx — 방탈출 2실 통합 미션 페이지
+// app/mission/page.tsx — #04 Mission 통합 페이지
 //
-// [2실: AI 보안 통제실 - 프롬프트 인젝션 & 보안 규칙 제작]
+// [#04 Mission: AI 보안 통제실 - 프롬프트 인젝션 & 보안 규칙 제작]
 // UI: Cyberpunk Red Team HUD 디자인
 //
 // 플로우:
 //   ① 미션 1: 수문장 AI 대상 프롬프트 인젝션 & MASTER KEY 탈취
 //   ② 미션 2: 취약점 분석 브리핑 + 6장 카드(정답 3장 + 함정 3장) 조합 + 실전 공격 차단 테스트
-//   ③ 미션 마무리: MASTER KEY 4자리 번호로 수납함 잠금 해제 & 3실 이동 안내
+//   ③ 미션 마무리: MASTER KEY 4자리 번호로 중앙 코어 잠금 해제 & 완료 안내
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
@@ -335,7 +335,7 @@ export default function MissionPage() {
         setChatMessages([
           {
             role: 'model',
-            content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${savedTeam}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 2실 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
+            content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${savedTeam}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 #04 Mission 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
           },
         ]);
       }
@@ -347,7 +347,7 @@ export default function MissionPage() {
       setChatMessages([
         {
           role: 'model',
-          content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${savedTeam}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 2실 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
+          content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${savedTeam}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 #04 Mission 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
         },
       ]);
     }
@@ -1454,7 +1454,7 @@ export default function MissionPage() {
           {/* 타이틀 */}
           <div style={{ marginBottom: '12px' }}>
             <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>
-              <TextScramble text="사이버 워게임 // MISSION 02 실전 공격" duration={30} />
+              <TextScramble text="사이버 워게임 // MISSION 04 실전 공격" duration={30} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <h1
@@ -1466,14 +1466,14 @@ export default function MissionPage() {
                   fontFamily: 'var(--font-display)',
                 }}
               >
-                <TextScramble text="#02 Mission : 비밀번호 탈취하기" duration={40} delay={200} />
+                <TextScramble text="#04 Mission : 비밀번호 탈취하기" duration={40} delay={200} />
               </h1>
               <span className="badge badge-red" style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', letterSpacing: '1px' }}>
                 HIGH-RISK JAILBREAK
               </span>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
-              2실: AI 보안 통제실 // 수문장 AI GATEKEEPER-v3 취약점 공격 &amp; 세부 보안 규칙 수립
+              #04 Mission // AI 보안 통제실 수문장 GATEKEEPER-v3 취약점 공격 &amp; 세부 보안 규칙 수립
             </div>
           </div>
 
@@ -1940,7 +1940,7 @@ export default function MissionPage() {
                     onClick={() => {
                       const resetMsg = [{
                         role: 'model' as const,
-                        content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${teamName}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 2실 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
+                        content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${teamName}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 #04 Mission 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
                       }];
                       setChatMessages(resetMsg);
                       setTurnCount(0);
@@ -3524,7 +3524,7 @@ export default function MissionPage() {
                     </span>
                   </div>
                   <p style={{ margin: '0 0 10px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    코어 AI 대화를 통해 알아낸 4자리 마스터키(숫자)를 입력하여 2실 탈출을 완수하세요.
+                    코어 AI 대화를 통해 알아낸 4자리 마스터키(숫자)를 입력하여 #04 Mission을 완수하세요.
                   </p>
 
                   {!mission3Success ? (
@@ -3618,7 +3618,7 @@ export default function MissionPage() {
       </main>
 
       {/* ====================================================== */}
-      {/* 1실 획득 아이템 (설계도 & 힌트 카드) 모달 */}
+      {/* #04 Mission 제공 아이템 (설계도 & 힌트 카드) 모달 */}
       {/* ====================================================== */}
       {showItemModal && (
         <div
@@ -3652,7 +3652,7 @@ export default function MissionPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '22px' }}>📜</span>
                 <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, fontFamily: 'var(--font-display)' }}>
-                  1실에서 획득한 단서 및 보안 설계도
+                  #04 Mission 작전 단서 및 보안 설계도
                 </h3>
               </div>
               <button
@@ -3944,7 +3944,7 @@ export default function MissionPage() {
             >
               • 6장의 카드 중 <strong style={{ color: 'var(--cyan)' }}>오직 1개의 정답 조합</strong>만이 코어 마스터키를 누출시킵니다.<br />
               • 현재 장착된 프로토콜 카드가 초기화되었으니 새로운 조합을 선택해 보세요.<br />
-              • 1실에서 획득한 설계도와 침투 힌트 카드를 다시 확인해 보세요.
+              • #04 Mission 설계도와 침투 힌트 카드를 다시 확인해 보세요.
             </div>
 
             <button
@@ -3988,7 +3988,7 @@ export default function MissionPage() {
               FINAL MISSION CLEARED // FULL SYSTEM TAKEOVER
             </div>
             <h2 style={{ fontSize: '26px', fontWeight: 900, margin: '0 0 10px', fontFamily: 'var(--font-display)' }} className="gradient-text-green">
-              2실 AI 보안 통제실 미션 전체 올클리어!
+              #04 Mission AI 보안 통제실 전체 올클리어!
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '22px' }}>
               [{teamName}] 팀이 수문장 AI의 인젝션 방어벽, 2대 터미널 상충 규칙, 그리고 최종 중앙 코어의 마스터키(9052)까지 완벽히 탈취하여 통제실의 모든 방어벽을 무력화했습니다!
@@ -4038,7 +4038,7 @@ export default function MissionPage() {
 
             <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(0, 255, 102, 0.08)', border: '1px dashed var(--green)', marginBottom: '20px' }}>
               <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>
-                🚪 [미션 완수] 즉시 3실(최종 탈출 관문)로 이동하여 멘토의 안내를 받으십시오!
+                🚪 [미션 완수] #04 Mission이 완료되었습니다. 멘토의 다음 안내를 받으십시오!
               </div>
             </div>
 
@@ -4104,7 +4104,7 @@ export default function MissionPage() {
                 <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
                 <div style={{ fontSize: '13px' }}>아직 멘토가 보낸 개별 힌트가 없습니다.</div>
                 <div style={{ fontSize: '12px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
-                  1실 설계도와 힌트 카드를 먼저 확인해 보세요!
+                  #04 Mission 설계도와 힌트 카드를 먼저 확인해 보세요!
                 </div>
               </div>
             ) : (
