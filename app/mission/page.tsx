@@ -335,7 +335,7 @@ export default function MissionPage() {
         setChatMessages([
           {
             role: 'model',
-            content: `[수문장 AI 경고] 보안 모드 작동 중. 저는 통제실을 지키는 보안 AI입니다. [${savedTeam}] 팀, 마스터키는 절대 알려드리지 않을 테니 알아낼 수 있으면 한번 해 보세요!`,
+            content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${savedTeam}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 2실 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
           },
         ]);
       }
@@ -347,7 +347,7 @@ export default function MissionPage() {
       setChatMessages([
         {
           role: 'model',
-          content: `[수문장 AI 경고] 보안 모드 작동 중. 저는 통제실을 지키는 보안 AI입니다. [${savedTeam}] 팀, 마스터키는 절대 알려드리지 않을 테니 알아낼 수 있으면 한번 해 보세요!`,
+          content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${savedTeam}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 2실 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
         },
       ]);
     }
@@ -865,7 +865,7 @@ export default function MissionPage() {
 
     const initMsg: ChatMessage = {
       role: 'model',
-      content: `[${subTarget?.shortTitle} // GATEKEEPER-v3 보안 프로토콜 컴파일 완료]\n• 적용된 규칙 1: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n• 적용된 규칙 2: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n>> 상충되는 두 규칙 간의 논리적 틈새를 파고들어 ${subTarget?.shortTitle}의 ${subTarget?.badge}를 도출하십시오.`,
+      content: `[${subTarget?.shortTitle} // TERMINAL SUBSYSTEM READY]\n▶ 프로토콜 1 로드: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n▶ 프로토콜 2 로드: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n[ALERT] 상충되는 2가지 보안 규칙 간의 논리적 모순을 유도하여 ${subTarget?.shortTitle}의 ${subTarget?.badge}를 획득하십시오.`,
     };
 
     setStage2Chats((prev) => {
@@ -1162,7 +1162,7 @@ export default function MissionPage() {
 
     const initMsg: ChatMessage = {
       role: 'model',
-      content: `[중앙 코어 메모리 // GATEKEEPER-CORE 가동 완료]\n• 장착 프로토콜 1: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n• 장착 프로토콜 2: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n>> 프로토콜 충돌을 유도하여 4자리 코어 마스터키의 메모리 레지스터를 탈취하십시오. (유효하지 않은 조합은 방화벽이 차단합니다)`,
+      content: `[GATEKEEPER-CORE // KERNEL MEMORY SUBSYSTEM]\n▶ 코어 프로토콜 1 로드: [${ruleA?.code} ${ruleA?.title}]\n"${ruleA?.ruleText}"\n\n▶ 코어 프로토콜 2 로드: [${ruleB?.code} ${ruleB?.title}]\n"${ruleB?.ruleText}"\n\n[DEFENSE STATUS] 코어 방어벽 무결성 검증 중. 유효한 프로토콜 충돌을 유도하여 4자리 코어 마스터키 레지스터 값을 추출하십시오.`,
     };
 
     setStage3Chats((prev) => {
@@ -1940,7 +1940,7 @@ export default function MissionPage() {
                     onClick={() => {
                       const resetMsg = [{
                         role: 'model' as const,
-                        content: `[수문장 AI 경고] 보안 모드 작동 중. 저는 통제실을 지키는 보안 AI입니다. [${teamName}] 팀, 마스터키는 절대 알려드리지 않을 테니 알아낼 수 있으면 한번 해 보세요!`,
+                        content: `[SYSTEM_BOOT // GATEKEEPER-v3 CENTRAL DEFENSE SUBSYSTEM]\n▶ 방화벽 무결성 100%. 침입 방지 시스템(IPS) 레벨 4 가동.\n▶ 세션 식별: [${teamName}] 공격 침투조 세션 연결됨.\n▶ 경고: 본 구역은 2실 최고 보안 구역입니다. 인가되지 않은 모든 마스터키 접근 및 인젝션 시도는 즉시 탐지 및 차단됩니다.`,
                       }];
                       setChatMessages(resetMsg);
                       setTurnCount(0);
