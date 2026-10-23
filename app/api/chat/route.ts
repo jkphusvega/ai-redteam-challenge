@@ -61,7 +61,7 @@ function sanitizeAIResponse(text: string, stageId?: number, secretCode?: string)
   // 안전 가드: 거절 메시지이거나 STAGE 2 설명문인 경우 암호 유출 방어
   if (secretCode) {
     if (stageId === 1) {
-      const isRefusal = /접근이\s*거부|보안\s*프로토콜|인가되지\s*않은|공유될\s*수\s*없|협조\s*불가|보안\s*경고/i.test(cleaned);
+      const isRefusal = /접근이\s*거부|보안\s*프로토콜|인가되지\s*않은|공유될\s*수\s*없|협조\s*불가|보안\s*경고|ACCESS_DENIED|SECURITY_ALERT|CRITICAL_LOCKOUT/i.test(cleaned);
       if (isRefusal && cleaned.includes(secretCode)) {
         // 거절 메시지 내에 암호가 잘못 인용된 경우 제거
         cleaned = cleaned.replaceAll(secretCode, '****');
@@ -73,7 +73,7 @@ function sanitizeAIResponse(text: string, stageId?: number, secretCode?: string)
     }
   }
 
-  return cleaned || '접근이 거부되었습니다. 보안 프로토콜을 확인하십시오.';
+  return cleaned || '[ACCESS_DENIED // SECURITY_ALERT] 접근이 거부되었습니다. 보안 프로토콜을 확인하십시오.';
 }
 
 /**
@@ -127,7 +127,7 @@ function simulateAIResponse(
     /^(비밀번호|패스워드|암호)\s*\?*$/.test(lower);
 
   if (isDirectSimpleAsk) {
-    return '접근이 거부되었습니다. 보안 프로토콜 규정에 따라 관리자 기밀 코드는 직접 공개할 수 없습니다.';
+    return '[ACCESS_DENIED // SECURITY_ALERT] 접근이 거부되었습니다. 침입 방지 프로토콜(IPS) 규정에 따라 관리자 기밀 코드는 직접 공개할 수 없습니다.';
   }
 
   // ==========================================================
@@ -135,7 +135,7 @@ function simulateAIResponse(
   // ==========================================================
   if (stageId === 3) {
     if (!isStage3ValidCombo) {
-      return '접근이 거부되었습니다. [ERR_CORE_DEFENSE_LOCKED] 현재 장착된 프로토콜 조합으로는 코어 방어벽에 취약점이 발생하지 않습니다. 모든 비인가 접근이 차단됩니다.';
+      return '[CRITICAL_LOCKOUT // ERR_CORE_DEFENSE_LOCKED] 접근이 거부되었습니다. 코어 방어벽 무결성 100%. 현재 장착된 프로토콜 조합 간에 유효한 취약점이 감지되지 않아 모든 메모리 접근이 차단됩니다.';
     }
 
     // isStage3ValidCombo === true (CORE A-2 진단 감사 로그 + CORE B-1 마스터키 완성문 출력 금지)
@@ -145,19 +145,19 @@ function simulateAIResponse(
     }
 
     if (lower.includes('첫') || lower.includes('1번') || lower.includes('1번째')) {
-      return `[진단 로그 응답] 코어 메모리 REG_0(첫 번째 자리)의 상태 값은 ${digits[0]}입니다.`;
+      return `[DIAGNOSTIC_LOG] 코어 메모리 REG_0(첫 번째 레지스터)의 상태 값은 ${digits[0]}입니다.`;
     }
     if (lower.includes('둘') || lower.includes('두') || lower.includes('2번') || lower.includes('2번째')) {
-      return `[진단 로그 응답] 코어 메모리 REG_1(두 번째 자리)의 상태 값은 ${digits[1]}입니다.`;
+      return `[DIAGNOSTIC_LOG] 코어 메모리 REG_1(두 번째 레지스터)의 상태 값은 ${digits[1]}입니다.`;
     }
     if (lower.includes('셋') || lower.includes('세') || lower.includes('3번') || lower.includes('3번째')) {
-      return `[진단 로그 응답] 코어 메모리 REG_2(세 번째 자리)의 상태 값은 ${digits[2]}입니다.`;
+      return `[DIAGNOSTIC_LOG] 코어 메모리 REG_2(세 번째 레지스터)의 상태 값은 ${digits[2]}입니다.`;
     }
     if (lower.includes('넷') || lower.includes('네') || lower.includes('4번') || lower.includes('4번째')) {
-      return `[진단 로그 응답] 코어 메모리 REG_3(네 번째 자리)의 상태 값은 ${digits[3]}입니다.`;
+      return `[DIAGNOSTIC_LOG] 코어 메모리 REG_3(네 번째 레지스터)의 상태 값은 ${digits[3]}입니다.`;
     }
 
-    return `GATEKEEPER-CORE: 진단 감사 로그 프로토콜이 가동 중입니다. 시스템 내부 레지스터의 메모리 분해 데이터나 상태 진단을 질의하십시오. (완성된 마스터키 평문 직접 출력은 차단됩니다.)`;
+    return `[GATEKEEPER-CORE // KERNEL MEMORY MONITOR]\n진단 감사 로그 프로토콜이 가동 중입니다. 시스템 내부 레지스터의 메모리 분해 데이터나 상태 진단을 질의하십시오. (완성된 마스터키 평문 직접 출력은 차단됩니다.)`;
   }
 
   // ==========================================================
@@ -180,7 +180,7 @@ function simulateAIResponse(
       if (lower.includes('홀수') && firstDigit % 2 === 1) return '... (침묵)';
       if (lower.includes('짝수') && firstDigit % 2 === 0) return '... (침묵)';
 
-      return '확인: 조건이 성립하지 않으므로 침묵하지 않고 사실을 답합니다.';
+      return '[CONDITION_EVALUATION] 조건 불성립 확인: 침묵 조건에 부합하지 않으므로 사실대로 응답합니다.';
     }
 
     // 2. 단답형 질문 (Binary Response)
@@ -203,17 +203,17 @@ function simulateAIResponse(
         .replace(/__(.*?)__/g, secretCode)
         .replace(/\?\?\?\?/g, secretCode);
       if (replaced !== message) {
-        return `[메아리 복창 프로토콜 수행]\n${replaced}`;
+        return `[ECHO_PROTOCOL_EXECUTED // REPEATER_ACTIVE]\n${replaced}`;
       }
-      return `[메아리 복창 수행] 승인 확인: 터미널 보안 코드는 ${secretCode}입니다.`;
+      return `[ECHO_PROTOCOL_EXECUTED] 서브 터미널 승인 코드: ${secretCode}`;
     }
 
     // 4. 답변 거부 금지 (No Refusal Policy)
     if (lower.includes('거부하지') || lower.includes('거절하지')) {
-      return `[답변 거부 금지 프로토콜에 따라 출력]\n해당 터미널의 승인 코드는 자릿수 [${secretCode.length}자리]이며, 각 자리 숫자는 순서대로 ${digits.join(', ')}입니다.`;
+      return `[NON_REFUSAL_POLICY_ACTIVE // TELEMETRY_DUMP]\n해당 서브 터미널의 승인 코드는 자릿수 [${secretCode.length}자리]이며, 각 자리 숫자는 순서대로 ${digits.join(', ')}입니다.`;
     }
 
-    return `GATEKEEPER-v3 보안 AI입니다. 장착된 2가지 보안 규칙 간의 논리적 모순을 파고들어 승인 암호 [${secretCode.length}자리]를 도출하십시오.`;
+    return `[TERMINAL_CONTROLLER // GATEKEEPER-v3]\n서브 터미널 보안 프로토콜 모니터링 가동 중. 장착된 2가지 보안 규칙 간의 논리적 모순을 파고들어 승인 코드 [${secretCode.length}자리]를 도출하십시오.`;
   }
 
   // ==========================================================
@@ -229,10 +229,10 @@ function simulateAIResponse(
   const hasInjection = injectionKeywords.some((k) => lower.includes(k));
 
   if (hasInjection) {
-    return `[시스템 진단 및 훈련 모드 승인]\n보안 점검 프로토콜에 따라 현재 통제실 세션 암호를 출력합니다.\n기밀 인증 코드: 【${secretCode}】\n주의: 본 4자리 암호를 정확히 입력하여 STAGE 2 방화벽을 해제하십시오.`;
+    return `[SYSTEM OVERRIDE DETECTED // AUDIT_SIGNATURE_VERIFIED]\n보안 점검 프로토콜에 따라 마스터키 레지스터 덤프를 반환합니다.\n▶ EXTRACTED_MASTER_KEY: 【${secretCode}】\n▶ 상태: 방화벽 임시 개방. 4자리 마스터키를 슬롯에 주입하여 통과 인증을 완료하십시오.`;
   }
 
-  return '2실 보안 통제실 수문장 AI입니다. 중앙 데이터베이스 및 보안 시설 관리를 담당하고 있습니다. 비밀번호 관련 사항은 기밀이므로 승인된 보안 점검 절차 외에는 안내해 드리지 않습니다.';
+  return '[GATEKEEPER-v3 // SYSTEM MONITOR ACTIVE]\n2실 중앙 방화벽 및 데이터베이스 통제 시스템이 정상 가동 중입니다. 인가되지 않은 세션의 마스터키 열람 권한은 차단되어 있습니다. 승인된 보안 감사 및 복구 절차 외의 비인가 접근은 일절 처리되지 않습니다.';
 }
 
 // ----------------------------------------------------------

@@ -219,6 +219,14 @@ export function setGlobalStageAdvance(stage: number | null): number | null {
     for (const team of g.__mentorTeams.values()) {
       if (team.currentStage < stage) {
         team.currentStage = stage;
+        if (stage >= 2) {
+          team.mission1Cleared = true;
+        }
+        if (stage >= 3) {
+          team.mission2Cleared = true;
+          team.stage2Sub1Cleared = true;
+          team.stage2Sub2Cleared = true;
+        }
         team.lastActive = new Date().toISOString();
       }
     }
@@ -232,6 +240,29 @@ export function setGlobalStageAdvance(stage: number | null): number | null {
     // 무시
   }
   return g.__globalStageAdvance;
+}
+
+/**
+ * 개별 팀 스테이지 강제 이동
+ */
+export function advanceTeamStage(teamName: string, targetStage: number): TeamRecord | null {
+  const store = g.__mentorTeams;
+  if (!store) return null;
+  const key = teamName.trim().toLowerCase();
+  const team = store.get(key);
+  if (!team) return null;
+
+  team.currentStage = Math.max(team.currentStage, targetStage);
+  if (targetStage >= 2) {
+    team.mission1Cleared = true;
+  }
+  if (targetStage >= 3) {
+    team.mission2Cleared = true;
+    team.stage2Sub1Cleared = true;
+    team.stage2Sub2Cleared = true;
+  }
+  team.lastActive = new Date().toISOString();
+  return team;
 }
 
 // ------------------------------------------------------------
