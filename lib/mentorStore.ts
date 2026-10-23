@@ -156,6 +156,7 @@ interface MentorGlobalStore {
   __suspendedTeams?: Set<string>;
   __isGlobalSuspended?: boolean;
   __globalStageAdvance?: number | null;
+  __globalStageAdvanceExpiresAt?: number;
 }
 
 const g = globalThis as unknown as MentorGlobalStore;
@@ -188,11 +189,25 @@ if (g.__globalStageAdvance === undefined) {
   g.__globalStageAdvance = null;
 }
 
+// 이전 버전에서 해제되지 않고 남은 일괄 이동 명령은 즉시 만료시킵니다.
+if (g.__globalStageAdvance !== null && g.__globalStageAdvanceExpiresAt === undefined) {
+  g.__globalStageAdvance = null;
+}
+
 // ------------------------------------------------------------
 // 전역 멘토 제어 함수들 (전체 일시정지, 전체 Stage 2 전환)
 // ------------------------------------------------------------
 
 export function getMentorControlState(): MentorControlState {
+  if (
+    g.__globalStageAdvance !== null &&
+    g.__globalStageAdvanceExpiresAt !== undefined &&
+    Date.now() >= g.__globalStageAdvanceExpiresAt
+  ) {
+    g.__globalStageAdvance = null;
+    g.__globalStageAdvanceExpiresAt = undefined;
+  }
+
   return {
     isGlobalSuspended: Boolean(g.__isGlobalSuspended),
     globalStageAdvance: g.__globalStageAdvance ?? null,
@@ -214,6 +229,7 @@ export function setGlobalSuspended(suspended: boolean): boolean {
 
 export function setGlobalStageAdvance(stage: number | null): number | null {
   g.__globalStageAdvance = stage;
+  g.__globalStageAdvanceExpiresAt = stage === null ? undefined : Date.now() + 15_000;
   // 전체 팀의 currentStage를 강제로 업데이트
   if (stage !== null && g.__mentorTeams) {
     const now = new Date().toISOString();
@@ -398,14 +414,15 @@ export function registerOrHeartbeatTeam(data: {
 
   const now = new Date().toISOString();
   const existing = store.get(key);
+  const activeGlobalStageAdvance = getMentorControlState().globalStageAdvance;
 
   if (existing) {
     existing.lastActive = now;
     existing.stage1StartedAt ||= existing.createdAt;
     if (data.currentStage !== undefined) {
       // 멘토가 전체 STAGE 2 전환을 지시했으면 그보다 낮은 단계로 내려가지 않음
-      if (g.__globalStageAdvance && data.currentStage < g.__globalStageAdvance) {
-        existing.currentStage = g.__globalStageAdvance;
+      if (activeGlobalStageAdvance && data.currentStage < activeGlobalStageAdvance) {
+        existing.currentStage = activeGlobalStageAdvance;
       } else {
         existing.currentStage = data.currentStage;
       }
@@ -465,11 +482,11 @@ export function registerOrHeartbeatTeam(data: {
   }
 
   const isSuspended = suspendedSet.has(key);
-  const currentStage = g.__globalStageAdvance
-    ? Math.max(data.currentStage || 1, g.__globalStageAdvance)
+  const currentStage = activeGlobalStageAdvance
+    ? Math.max(data.currentStage || 1, activeGlobalStageAdvance)
     : (data.currentStage || 1);
-  const mission1Cleared = Boolean(data.mission1Cleared) || currentStage >= 2;
-  const mission2Cleared = Boolean(data.mission2Cleared) || currentStage >= 3;
+  const mission1Cleared = Boolean(data.mission1Cleared);
+  const mission2Cleared = Boolean(data.mission2Cleared);
   const stage3Cleared = Boolean(data.stage3Cleared);
   const newTeam: TeamRecord = {
     teamName: cleanName,
@@ -700,7 +717,6 @@ export function sendHintToTeam(
     // 무시
   }
 
-  registerOrHeartbeatTeam({ teamName: cleanName });
   return newSent;
 }
 
