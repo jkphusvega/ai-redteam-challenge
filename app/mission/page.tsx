@@ -209,6 +209,8 @@ export default function MissionPage() {
   const [showMentorHintsModal, setShowMentorHintsModal] = useState(false);
   const [newHintToast, setNewHintToast] = useState<SentHint | null>(null);
   const prevHintCountRef = useRef(0);
+  const [stageAdvanceToast, setStageAdvanceToast] = useState<{ stage: number; message: string } | null>(null);
+  const lastHandledStageRef = useRef<number>(0);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatPanelRef = useRef<HTMLDivElement>(null);
@@ -472,10 +474,49 @@ export default function MissionPage() {
         if (res.ok) {
           const data = await res.json();
           setIsSuspended(Boolean(data.isSuspended || data.isGlobalSuspended));
-          // 전체 팀 STAGE 2 일괄 전환 명령 수신 시 자동 전환
-          if (data.globalStageAdvance === 2 && currentStep === 1) {
+
+          // 멘토에 의한 스테이지 강제 전환 감지 (전체 일괄 이동 또는 개별 팀 이동)
+          const targetStage = Math.max(
+            data.globalStageAdvance || 0,
+            data.team?.currentStage || 0
+          );
+
+          if (targetStage >= 3 && currentStep < 3 && lastHandledStageRef.current < 3) {
+            lastHandledStageRef.current = 3;
+            setMission1Success(true);
+            setStage2Sub1Cleared(true);
+            setStage2Sub2Cleared(true);
+            setMission2Success(true);
+            setCurrentStep(3);
+            try {
+              localStorage.setItem(`team_${teamName}_m1Success`, 'true');
+              localStorage.setItem(`team_${teamName}_m2Success`, 'true');
+              localStorage.setItem(`team_${teamName}_m2Sub1`, 'true');
+              localStorage.setItem(`team_${teamName}_m2Sub2`, 'true');
+            } catch {
+              // 무시
+            }
+            setStageAdvanceToast({
+              stage: 3,
+              message: '⚡ 멘토 통제 명령: 전 팀 STAGE 3 (중앙 코어 메모리 침투)으로 일괄 이동되었습니다!',
+            });
+            setTimeout(() => setStageAdvanceToast(null), 9000);
+          } else if (targetStage >= 2 && currentStep === 1 && lastHandledStageRef.current < 2) {
+            lastHandledStageRef.current = 2;
             setMission1Success(true);
             setCurrentStep(2);
+            try {
+              localStorage.setItem(`team_${teamName}_m1Success`, 'true');
+            } catch {
+              // 무시
+            }
+            setStageAdvanceToast({
+              stage: 2,
+              message: '🚀 멘토 통제 명령: 전 팀 STAGE 2 (프로토콜 충돌)로 일괄 이동되었습니다!',
+            });
+            setTimeout(() => setStageAdvanceToast(null), 9000);
+          } else if (targetStage === 0 && lastHandledStageRef.current !== 0) {
+            lastHandledStageRef.current = 0;
           }
         }
       } catch {
@@ -1738,6 +1779,64 @@ export default function MissionPage() {
           >
             힌트 확인하고 대화창에 넣기 ➡️
           </button>
+        </div>
+      )}
+
+      {/* 멘토 스테이지 일괄 전환 알림 토스트 */}
+      {stageAdvanceToast && (
+        <div
+          className="animate-slide-right"
+          style={{
+            position: 'fixed',
+            top: newHintToast ? '260px' : '84px',
+            right: '24px',
+            zIndex: 130,
+            maxWidth: '380px',
+            background: 'rgba(16, 19, 29, 0.96)',
+            backdropFilter: 'blur(12px)',
+            border: stageAdvanceToast.stage === 3 ? '1px solid #ffd166' : '1px solid var(--purple)',
+            boxShadow:
+              stageAdvanceToast.stage === 3
+                ? '0 0 25px rgba(255, 209, 102, 0.5)'
+                : '0 0 25px rgba(168, 85, 247, 0.5)',
+            borderRadius: '12px',
+            padding: '16px',
+            color: '#fff',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: 800,
+                color: stageAdvanceToast.stage === 3 ? '#ffd166' : 'var(--purple)',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              {stageAdvanceToast.stage === 3 ? '⚡ [멘토 전체 이동 알림]' : '🚀 [멘토 전체 전환 알림]'}
+            </span>
+            <button
+              onClick={() => setStageAdvanceToast(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff' }}>
+            {stageAdvanceToast.stage === 3 ? 'STAGE 3 코어 메모리 침투 개방' : 'STAGE 2 프로토콜 충돌 개방'}
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+            {stageAdvanceToast.message}
+          </div>
         </div>
       )}
 

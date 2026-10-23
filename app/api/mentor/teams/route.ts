@@ -23,6 +23,7 @@ import {
   getMentorControlState,
   setGlobalSuspended,
   setGlobalStageAdvance,
+  advanceTeamStage,
 } from '@/lib/mentorStore';
 import { isMentor } from '@/lib/mentorAuth';
 
@@ -144,7 +145,9 @@ export async function PATCH(req: NextRequest) {
       | 'global_suspend'
       | 'global_resume'
       | 'advance_all_stage2'
+      | 'advance_all_stage3'
       | 'reset_stage_advance'
+      | 'advance_team_stage'
       | undefined;
     const teamName = body.teamName?.trim();
     const directStatus = body.status as 'active' | 'suspended' | undefined;
@@ -179,11 +182,40 @@ export async function PATCH(req: NextRequest) {
       });
     }
 
+    // 4. 전체 참가팀 STAGE 3 일괄 전환
+    if (action === 'advance_all_stage3') {
+      setGlobalStageAdvance(3);
+      return NextResponse.json({
+        success: true,
+        globalStageAdvance: 3,
+        message: '⚡ 모든 참가팀을 STAGE 3으로 일괄 전환했습니다.',
+      });
+    }
+
+    // 5. 일괄 전환 명령 해제
     if (action === 'reset_stage_advance') {
       setGlobalStageAdvance(null);
       return NextResponse.json({
         success: true,
         globalStageAdvance: null,
+        message: '🔄 일괄 전환 명령이 해제되었습니다.',
+      });
+    }
+
+    // 6. 개별 팀 스테이지 강제 이동
+    if (action === 'advance_team_stage') {
+      if (!teamName) {
+        return NextResponse.json({ error: '대상 팀 이름이 필요합니다.' }, { status: 400 });
+      }
+      const targetStage = Number(body.targetStage) || 3;
+      const updated = advanceTeamStage(teamName, targetStage);
+      if (!updated) {
+        return NextResponse.json({ error: '팀을 찾을 수 없습니다.' }, { status: 404 });
+      }
+      return NextResponse.json({
+        success: true,
+        team: updated,
+        message: `[${teamName}] 팀을 STAGE ${targetStage}로 이동시켰습니다.`,
       });
     }
 

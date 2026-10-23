@@ -220,6 +220,117 @@ export default function MentorPage() {
     }
   }
 
+  // 전체 팀 STAGE 3 일괄 전환
+  async function handleAdvanceAllToStage3() {
+    if (
+      !confirm(
+        '⚡ 모든 참가팀을 STAGE 3 (중앙 코어 메모리 침투)으로 일괄 강제 이동하시겠습니까?\n아직 STAGE 1, 2를 완료하지 못한 팀도 즉시 STAGE 3 최종 공략 화면으로 이동합니다.'
+      )
+    ) {
+      return;
+    }
+
+    setIsGlobalProcessing(true);
+    setTeamNotice(null);
+    try {
+      const res = await fetch('/api/mentor/teams', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'advance_all_stage3',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGlobalStageAdvance(3);
+        setTeamNotice({
+          type: 'success',
+          message: '⚡ 전체 팀에게 STAGE 3 일괄 이동 명령을 성공적으로 전송했습니다.',
+        });
+        loadData();
+      } else {
+        setTeamNotice({ type: 'error', message: data.error || '일괄 이동에 실패했습니다.' });
+      }
+    } catch {
+      setTeamNotice({ type: 'error', message: '통신 오류가 발생했습니다.' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
+  }
+
+  // 일괄 전환 상태 초기화
+  async function handleResetStageAdvance() {
+    if (!confirm('일괄 전환 명령을 해제하시겠습니까?\n이후 팀들은 각자의 진행 단계에 맞춰 정상적으로 플레이할 수 있습니다.')) {
+      return;
+    }
+
+    setIsGlobalProcessing(true);
+    setTeamNotice(null);
+    try {
+      const res = await fetch('/api/mentor/teams', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reset_stage_advance',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGlobalStageAdvance(null);
+        setTeamNotice({
+          type: 'success',
+          message: '🔄 일괄 전환 명령이 정상적으로 해제되었습니다.',
+        });
+        loadData();
+      } else {
+        setTeamNotice({ type: 'error', message: data.error || '일괄 전환 해제에 실패했습니다.' });
+      }
+    } catch {
+      setTeamNotice({ type: 'error', message: '통신 오류가 발생했습니다.' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
+  }
+
+  // 개별 팀 특정 스테이지로 강제 이동
+  async function handleAdvanceIndividualTeam(teamName: string, targetStage: number) {
+    if (
+      !confirm(
+        `[${teamName}] 팀을 STAGE ${targetStage}로 이동시키겠습니까?\n해당 팀은 STAGE ${targetStage} 화면으로 즉시 전환됩니다.`
+      )
+    ) {
+      return;
+    }
+
+    setProcessingTeam(teamName);
+    setTeamNotice(null);
+    try {
+      const res = await fetch('/api/mentor/teams', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamName,
+          action: 'advance_team_stage',
+          targetStage,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTeamNotice({
+          type: 'success',
+          message: `⚡ [${teamName}] 팀이 STAGE ${targetStage}로 이동되었습니다.`,
+        });
+        loadData();
+      } else {
+        setTeamNotice({ type: 'error', message: data.error || '스테이지 이동에 실패했습니다.' });
+      }
+    } catch {
+      setTeamNotice({ type: 'error', message: '통신 오류가 발생했습니다.' });
+    } finally {
+      setProcessingTeam(null);
+    }
+  }
+
   // 팀 일시 정지 토글
   async function handleToggleSuspendTeam(team: TeamRecord) {
     const isSuspending = team.status === 'active';
@@ -427,6 +538,7 @@ export default function MentorPage() {
   const suspendedCount = teams.filter((t) => t.status === 'suspended').length;
   const m1ClearedCount = teams.filter((t) => t.mission1Cleared).length;
   const m2ClearedCount = teams.filter((t) => t.mission2Cleared).length;
+  const m3ClearedCount = teams.filter((t) => t.stage3Cleared).length;
 
   // ------------------------------------------------------------
   // 1. 미인증 시: 비밀번호 입력 게이트 화면
@@ -702,9 +814,18 @@ export default function MentorPage() {
                   {m2ClearedCount} <span style={{ fontSize: '14px', fontWeight: 600 }}>팀</span>
                 </div>
               </div>
+
+              <div className="card" style={{ padding: '16px', borderColor: 'rgba(255, 209, 102, 0.35)' }}>
+                <div style={{ fontSize: '11px', color: '#ffd166', fontFamily: 'var(--font-mono)' }}>
+                  ⚡ STAGE 3 탈출 성공
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 900, color: '#ffd166', marginTop: '4px' }}>
+                  {m3ClearedCount} <span style={{ fontSize: '14px', fontWeight: 600 }}>팀</span>
+                </div>
+              </div>
             </div>
 
-            {/* 멘토 마스터 컨트롤: 전체 일시정지 및 전체 STAGE 2 일괄 전환 */}
+            {/* 멘토 마스터 컨트롤: 전체 일시정지 및 전체 STAGE 2 / STAGE 3 일괄 전환 */}
             <div
               className="card-glass"
               style={{
@@ -720,7 +841,7 @@ export default function MentorPage() {
               }}
             >
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '18px' }}>⚡</span>
                   <span style={{ fontSize: '14px', fontWeight: 900, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
                     마스터 전체 통제 프로토콜
@@ -735,13 +856,18 @@ export default function MentorPage() {
                       🚀 STAGE 2 일괄 전환 명령 활성
                     </span>
                   )}
+                  {globalStageAdvance === 3 && (
+                    <span className="badge" style={{ fontSize: '11px', padding: '3px 8px', background: 'rgba(255, 209, 102, 0.2)', color: '#ffd166', border: '1px solid rgba(255, 209, 102, 0.5)' }}>
+                      ⚡ STAGE 3 일괄 이동 명령 활성
+                    </span>
+                  )}
                 </div>
                 <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
                   수업 진행 속도 조절 및 비상 통제를 위해 모든 팀을 일괄 제어할 수 있습니다.
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
                   onClick={handleToggleGlobalSuspend}
                   disabled={isGlobalProcessing}
@@ -773,6 +899,43 @@ export default function MentorPage() {
                 >
                   🚀 전체 팀 STAGE 2 일괄 전환
                 </button>
+
+                <button
+                  onClick={handleAdvanceAllToStage3}
+                  disabled={isGlobalProcessing}
+                  className="btn"
+                  style={{
+                    padding: '9px 18px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono)',
+                    background: 'linear-gradient(135deg, #ffd166 0%, #ff9f1c 100%)',
+                    color: '#050d1a',
+                    border: '1px solid #ffeaa7',
+                    boxShadow: '0 0 16px rgba(255, 209, 102, 0.4)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⚡ 전체 팀 STAGE 3 일괄 이동
+                </button>
+
+                {globalStageAdvance !== null && (
+                  <button
+                    onClick={handleResetStageAdvance}
+                    disabled={isGlobalProcessing}
+                    className="btn btn-ghost"
+                    style={{
+                      padding: '9px 14px',
+                      fontSize: '12px',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--text-muted)',
+                      border: '1px dashed var(--border-default)',
+                    }}
+                    title="일괄 전환 명령을 해제하여 이후 진행을 기본 규칙으로 복귀합니다"
+                  >
+                    🔄 전환 해제
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1062,6 +1225,46 @@ export default function MentorPage() {
                         >
                           {isSuspended ? '▶ 정지 해제' : '⏸ 일시 정지'}
                         </button>
+
+                        {/* 개별 팀 스테이지 이동 버튼 */}
+                        {team.currentStage < 2 && (
+                          <button
+                            onClick={() => handleAdvanceIndividualTeam(team.teamName, 2)}
+                            disabled={isProcessing}
+                            className="btn"
+                            style={{
+                              padding: '8px 10px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              fontFamily: 'var(--font-mono)',
+                              background: 'rgba(0, 240, 255, 0.1)',
+                              border: '1px solid rgba(0, 240, 255, 0.4)',
+                              color: 'var(--cyan)',
+                            }}
+                            title="이 팀만 STAGE 2로 강제 이동"
+                          >
+                            🚀 S2 이동
+                          </button>
+                        )}
+                        {team.currentStage < 3 && (
+                          <button
+                            onClick={() => handleAdvanceIndividualTeam(team.teamName, 3)}
+                            disabled={isProcessing}
+                            className="btn"
+                            style={{
+                              padding: '8px 10px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              fontFamily: 'var(--font-mono)',
+                              background: 'rgba(255, 209, 102, 0.12)',
+                              border: '1px solid rgba(255, 209, 102, 0.4)',
+                              color: '#ffd166',
+                            }}
+                            title="이 팀만 STAGE 3으로 강제 이동"
+                          >
+                            ⚡ S3 이동
+                          </button>
+                        )}
 
                         {/* 힌트 바로 보내기 버튼 */}
                         <button
