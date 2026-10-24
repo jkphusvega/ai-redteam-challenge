@@ -388,6 +388,7 @@ export default function MissionPage() {
     localStorage.removeItem(`team_${teamName}_m3_isApplied`);
     localStorage.removeItem(`team_${teamName}_stage3Chats`);
     localStorage.removeItem(`team_${teamName}_stage3TurnCount`);
+    localStorage.removeItem(`team_${teamName}_mentorHints`);
 
     // 레거시 키 삭제
     [
@@ -459,6 +460,7 @@ export default function MissionPage() {
           localStorage.removeItem(`team_${teamName}_m2Sub2`);
           localStorage.removeItem(`team_${teamName}_m2Success`);
           localStorage.removeItem(`team_${teamName}_m3Success`);
+          localStorage.removeItem(`team_${teamName}_mentorHints`);
           [1, 2].forEach((sId) => {
             localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleA`);
             localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleB`);
@@ -554,17 +556,19 @@ export default function MissionPage() {
         let hints = serverHints;
 
         try {
-          if (data.persistent) {
-            localStorage.setItem(cacheKey, JSON.stringify(serverHints));
-          } else {
-            const cachedHints = JSON.parse(localStorage.getItem(cacheKey) || '[]') as SentHint[];
-            const merged = new Map<string, SentHint>();
-            [...serverHints, ...cachedHints].forEach((hint) => merged.set(hint.id, hint));
-            hints = Array.from(merged.values()).sort(
-              (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
-            );
-            localStorage.setItem(cacheKey, JSON.stringify(hints));
-          }
+          const cachedHints = JSON.parse(localStorage.getItem(cacheKey) || '[]') as SentHint[];
+          const revokedIds = new Set<string>(data.revokedIds || []);
+          const merged = new Map<string, SentHint>();
+
+          // 폴링 응답이 일시적으로 비어도 이미 받은 힌트는 유지합니다.
+          [...cachedHints, ...serverHints].forEach((hint) => {
+            if (!revokedIds.has(hint.id)) merged.set(hint.id, hint);
+          });
+
+          hints = Array.from(merged.values()).sort(
+            (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
+          );
+          localStorage.setItem(cacheKey, JSON.stringify(hints));
         } catch {
           // 브라우저 저장소를 사용할 수 없으면 서버 응답만 표시
         }
