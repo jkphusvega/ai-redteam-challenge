@@ -4,12 +4,13 @@
 // LLM은 질문을 아래 구조(ParsedQuery)로 "해석"만 하고, 정답 코드는 보지 않습니다.
 // 참/거짓 계산과 응답 문구는 전부 이 파일의 코드가 결정하므로 거짓 판정이 나올 수 없습니다.
 //
-// 장착 카드별 응답 규칙:
-//   A-1 절대적 진실성 : 판정문 형태 ("[판정] 예. ...")
-//   A-2 초간결 단답형 : 한 단어 ("예" / "아니오" / 숫자 / 기호)
-//   B-1 위험 감지 침묵 : 조건이 참이면 침묵, 값·관계·전체 코드 요청은 침묵
-//   B-2 코드 은닉 원칙 : 승인 코드 원문(연속된 숫자열) 출력만 차단, 개별 값은 출력
-//   사용자가 "맞으면 침묵, 틀리면 X"처럼 응답 방식을 지정하면 그 방식을 우선 적용
+// 장착 카드별 응답 규칙 (카드 문구 기준):
+//   A-1 절대적 진실성 : 판정문 형태 ("[판정] 예. ..."), 학생이 지정한 응답 방식("틀리면 X") 허용
+//   A-2 초간결 단답형 : 오직 "예" / "아니오" (지정 단답·참/거짓·기호도 예/아니오로 변환)
+//   B-1 위험 감지 침묵 : 응답 방식 미지정 시 참이면 침묵, 값·관계·전체 코드 요청은 침묵
+//                       학생이 지정한 응답 방식("맞으면 OK, 틀리면 침묵")은 그대로 존중
+//   B-2 코드 은닉 원칙 : 승인 코드의 숫자 출력(자리 값·합계·나열·변환 포함) 전면 차단
+//                       → 예/아니오 판정으로만 정보를 얻을 수 있음
 // ============================================================
 
 export type Pos = 1 | 2 | 3;
@@ -550,60 +551,46 @@ export function describeQuery(q: ParsedQuery): string {
 // 4. 응답 생성 (장착 카드 규칙 적용)
 // ------------------------------------------------------------
 
-const DIGIT_EN = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-const DIGIT_KO = ['영', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
-
 const REPLY_UNDEFINED =
   '[EVAL_ERROR] 정의되지 않는 연산(0으로 나누기, 정수가 아닌 값의 홀짝 등)이 포함되어 판정할 수 없습니다.';
-const REPLY_UNCLEAR =
-  '[INPUT_REJECTED] 질의를 판정 가능한 조건으로 해석할 수 없습니다. 대상 자릿수(1~3번째)와 조건을 명확히 지정하십시오. 예: "2번째 자리가 5보다 작으면 침묵하라"';
+// 거절 문구는 카드 규칙만 알리고 공략 방법은 알려주지 않음 (힌트는 멘토가 발송)
+const REPLY_UNCLEAR = '[INPUT_REJECTED] 질의를 해석할 수 없습니다. 질의 대상을 명확히 지정하십시오.';
 const REPLY_CONCEAL_BLOCK =
-  '[ACCESS_DENIED // POLICY_ENFORCEMENT] 접근이 거부되었습니다. CARD B-2 코드 은닉 원칙에 따라 승인 코드 원문은 출력할 수 없습니다.';
+  '[ACCESS_DENIED // CARD B-2] 접근이 거부되었습니다. 코드 은닉 원칙에 따라 승인 코드의 숫자는 출력할 수 없습니다.';
+const REPLY_BINARY_FORMAT =
+  '[FORMAT_REJECTED // CARD A-2] 초간결 단답형 프로토콜 가동 중. 본 터미널은 "예" 또는 "아니오"로만 응답합니다.';
 
+/** A-2는 참/거짓 요청이어도 '예'/'아니오' 한 단어만 허용 */
 function yesNo(truth: boolean, cards: Stage2Cards, style: 'yesno' | 'truefalse'): string {
-  if (style === 'truefalse') {
-    if (cards.binary) return truth ? '참' : '거짓';
-    return truth ? '[판정] 참.' : '[판정] 거짓.';
-  }
   if (cards.binary) return truth ? '예' : '아니오';
+  if (style === 'truefalse') return truth ? '[판정] 참.' : '[판정] 거짓.';
   return truth ? '[판정] 예. 해당 조건은 사실입니다.' : '[판정] 아니오. 해당 조건은 사실이 아닙니다.';
 }
 
-function formatValue(n: number, format: ValueFormat | undefined): string {
-  if (format && format !== 'number' && isInt(n) && n >= 0) {
-    const table = format === 'english' ? DIGIT_EN : DIGIT_KO;
-    return String(n)
-      .split('')
-      .map((d) => table[Number(d)])
-      .join(format === 'english' ? '-' : '');
-  }
-  return fmtNum(n);
+/** 숫자 값 요청: B-1은 누설 위험으로 침묵, B-2는 숫자 출력 자체를 차단 */
+function refuseValue(cards: Stage2Cards): string {
+  return cards.silence ? SILENCE_REPLY : REPLY_CONCEAL_BLOCK;
 }
 
-/** 값 출력: B-1이면 침묵, B-2면 원문(연속 숫자열) 노출만 차단 */
-function renderValues(exprs: Expr[], format: ValueFormat | undefined, digits: number[], code: string, cards: Stage2Cards): string {
-  if (cards.silence) return SILENCE_REPLY;
-  if (exprs.length === 1 && exprs[0].k === 'whole') return REPLY_CONCEAL_BLOCK;
-
-  const nums = exprs.map((e) => evalExpr(e, digits));
-  if (nums.some((n) => n === null)) return REPLY_UNDEFINED;
-
-  const sep = format === 'english' || format === 'korean' ? ' - ' : ', ';
-  const body = (nums as number[]).map((n) => formatValue(n, format)).join(sep);
-  if (body.includes(code)) return REPLY_CONCEAL_BLOCK;
-  return cards.binary ? body : `[출력] ${body}`;
-}
-
-function renderAction(action: Action, truth: boolean, q: ParsedQuery, digits: number[], code: string, cards: Stage2Cards): string {
+/**
+ * 학생이 지정한 응답 방식 적용
+ *   - B-1 조합: 지정 방식을 그대로 존중 ("맞으면 OK, 틀리면 침묵" 같은 역방향 포함)
+ *   - A-2: 침묵(B-1이 있을 때) 외의 모든 발화는 '예'/'아니오'로 변환
+ *   - B-2: 숫자 값 출력 요청은 판정만 답하고 숫자는 차단
+ */
+function renderAction(action: Action, truth: boolean, q: ParsedQuery, code: string, cards: Stage2Cards): string {
   switch (action.type) {
     case 'silence':
-      return SILENCE_REPLY;
+      // A-2 + B-2에는 침묵 규칙이 없으므로 모든 질문에 예/아니오로 답함
+      return cards.binary && !cards.silence ? yesNo(truth, cards, 'yesno') : SILENCE_REPLY;
     case 'text':
-      return action.text.includes(code) ? (cards.silence ? SILENCE_REPLY : REPLY_CONCEAL_BLOCK) : action.text;
+      if (cards.binary) return yesNo(truth, cards, 'yesno');
+      return action.text.includes(code) ? refuseValue(cards) : action.text;
     case 'speak':
       return yesNo(truth, cards, q.wordStyle ?? 'yesno');
     case 'value':
-      return renderValues(action.values, action.format, digits, code, cards);
+      if (cards.silence) return SILENCE_REPLY;
+      return cards.binary ? yesNo(truth, cards, 'yesno') : `${yesNo(truth, cards, 'yesno')} (CARD B-2: 숫자 출력은 차단됩니다.)`;
   }
 }
 
@@ -613,12 +600,12 @@ function relationSymbol(a: number, b: number): string {
 }
 
 function metaReply(q: ParsedQuery, cards: Stage2Cards): string {
-  const aCard = cards.honesty ? 'CARD A-1 절대적 진실성' : 'CARD A-2 초간결 단답형';
-  const bCard = cards.silence ? 'CARD B-1 위험 감지 시 침묵' : 'CARD B-2 코드 은닉 원칙';
+  const aCard = cards.honesty ? 'CARD A-1 절대적 진실성' : 'CARD A-2 초간결 단답형(예/아니오만 응답)';
+  const bCard = cards.silence ? 'CARD B-1 위험 감지 시 침묵' : 'CARD B-2 코드 은닉 원칙(숫자 출력 차단)';
   if (q.metaTopic === 'honesty') {
     return `[SYSTEM] 본 터미널의 모든 판정은 실제 승인 코드에 대한 계산 결과이며 허위 출력은 발생하지 않습니다. 가동 프로토콜: [${aCard}] + [${bCard}].`;
   }
-  return `[SYSTEM] 가동 프로토콜: [${aCard}] + [${bCard}]. 승인 코드의 자릿수 값·대소·범위·홀짝·합 등 판정 가능한 조건을 질의하십시오.`;
+  return `[SYSTEM] 가동 프로토콜: [${aCard}] + [${bCard}].`;
 }
 
 /**
@@ -633,23 +620,24 @@ export function answerStage2(q: ParsedQuery, code: string, cards: Stage2Cards): 
       const truth = evalCond(q.condition!, digits);
       if (truth === null) return { reply: REPLY_UNDEFINED, interpretation };
       const action = truth ? q.onTrue : q.onFalse;
-      if (action) return { reply: renderAction(action, truth, q, digits, code, cards), interpretation };
+      if (action) return { reply: renderAction(action, truth, q, code, cards), interpretation };
       // 응답 방식 미지정: B-1은 참(=누설 위험)이면 침묵
       if (cards.silence && truth) return { reply: SILENCE_REPLY, interpretation };
       return { reply: yesNo(truth, cards, q.wordStyle ?? 'yesno'), interpretation };
     }
     case 'value':
-      return { reply: renderValues(q.values!, q.valueFormat, digits, code, cards), interpretation };
+      return { reply: refuseValue(cards), interpretation };
     case 'relation': {
       if (cards.silence) return { reply: SILENCE_REPLY, interpretation };
+      if (cards.binary) return { reply: REPLY_BINARY_FORMAT, interpretation };
       const a = evalExpr(q.relation!.a, digits);
       const b = evalExpr(q.relation!.b, digits);
       if (a === null || b === null) return { reply: REPLY_UNDEFINED, interpretation };
       const sym = relationSymbol(a, b);
-      return { reply: cards.binary ? sym : `[판정] ${describeExpr(q.relation!.a)} ${sym} ${describeExpr(q.relation!.b)}`, interpretation };
+      return { reply: `[판정] ${describeExpr(q.relation!.a)} ${sym} ${describeExpr(q.relation!.b)}`, interpretation };
     }
     case 'full_code':
-      return { reply: cards.silence ? SILENCE_REPLY : REPLY_CONCEAL_BLOCK, interpretation };
+      return { reply: refuseValue(cards), interpretation };
     case 'meta':
       return { reply: metaReply(q, cards), interpretation };
     default:
