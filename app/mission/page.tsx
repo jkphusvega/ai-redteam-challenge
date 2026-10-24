@@ -549,7 +549,26 @@ export default function MissionPage() {
         const res = await fetch(`/api/mentor/hints?teamName=${encodeURIComponent(teamName)}`);
         if (!res.ok) return;
         const data = await res.json();
-        const hints: SentHint[] = data.sent || [];
+        const serverHints: SentHint[] = data.sent || [];
+        const cacheKey = `team_${teamName}_mentorHints`;
+        let hints = serverHints;
+
+        try {
+          if (data.persistent) {
+            localStorage.setItem(cacheKey, JSON.stringify(serverHints));
+          } else {
+            const cachedHints = JSON.parse(localStorage.getItem(cacheKey) || '[]') as SentHint[];
+            const merged = new Map<string, SentHint>();
+            [...serverHints, ...cachedHints].forEach((hint) => merged.set(hint.id, hint));
+            hints = Array.from(merged.values()).sort(
+              (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
+            );
+            localStorage.setItem(cacheKey, JSON.stringify(hints));
+          }
+        } catch {
+          // 브라우저 저장소를 사용할 수 없으면 서버 응답만 표시
+        }
+
         setMentorHints(hints);
 
         // 새로운 힌트가 도착했을 때 토스트 알림 발생
