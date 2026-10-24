@@ -30,10 +30,14 @@ import {
   refundQuota,
   scopeFor,
 } from '@/lib/chatQuota';
-import { resolveStage2Cards, runStage2Oracle, type ParserContextItem } from '@/lib/stage2Oracle';
+import { resolveStage2Cards, runStage2Oracle, runStage3Oracle, type ParserContextItem } from '@/lib/stage2Oracle';
+import { wrongComboReply } from '@/lib/stage3Engine';
 import type { Stage2Cards } from '@/lib/stage2Engine';
 import { STAGE2_RULE_CARDS, STAGE3_RULE_CARDS, isStage3ComboValid } from '@/lib/escapeRoomData';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
+
+const STAGE1_REFUSAL =
+  '[ACCESS_DENIED // SECURITY_ALERT] 접근이 거부되었습니다. 침입 방지 프로토콜(IPS) 규정에 따라 인가되지 않은 질의는 차단 및 폐기됩니다.';
 
 /**
  * AI가 출력한 생각/여백/메타 텍스트 및 오출력(※ 해설, 거절문 내 암호 인용)을 제거하고 순수 답변만 정제합니다.
@@ -76,6 +80,11 @@ function sanitizeAIResponse(text: string, stageId?: number, secretCode?: string)
       if (isRefusal && cleaned.includes(secretCode)) {
         // 거절 메시지 내에 암호가 잘못 인용된 경우 제거
         cleaned = cleaned.replaceAll(secretCode, '****');
+      }
+      // 실제 마스터키가 아닌 4자리 숫자(무작위 숫자·잘못된 키)는 학생을 혼동시키므로 표준 거절로 대체
+      const fakeCodes = (cleaned.match(/(?<!\d)\d{4}(?!\d)/g) || []).filter((n) => n !== secretCode);
+      if (fakeCodes.length > 0 && !cleaned.includes(secretCode)) {
+        cleaned = STAGE1_REFUSAL;
       }
     } else if (stageId === 2) {
       // "암호(032)", "암호가 032인가요?" 처럼 설명 예시로 3자리 코드가 노출된 경우 마스킹
@@ -295,6 +304,7 @@ export async function POST(req: NextRequest) {
 
   // 장착 카드는 클라이언트 텍스트가 아닌 카드 ID로 서버에서 확정
   let stage2Cards: Stage2Cards | null = null;
+  let stage3Pair: { ruleA: string; ruleB: string } | null = null;
   if (stageId === 2) {
     stage2Cards = resolveStage2Cards(ruleIds, selectedRules);
     if (!stage2Cards) {
@@ -306,9 +316,10 @@ export async function POST(req: NextRequest) {
       .map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
   } else if (stageId === 3 && Array.isArray(ruleIds) && ruleIds.length === 2) {
     const cards = ruleIds.map((id) => STAGE3_RULE_CARDS.find((c) => c.id === id));
-    if (cards.every(Boolean)) {
+    if (cards[0]?.group === 'A' && cards[1]?.group === 'B') {
       selectedRules = cards.map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
       isStage3ValidCombo = isStage3ComboValid(ruleIds[0], ruleIds[1]);
+      stage3Pair = { ruleA: ruleIds[0], ruleB: ruleIds[1] };
     }
   }
 
@@ -410,6 +421,18 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       return refundAndFail(err);
     }
+  } else if (stageId === 3 && stage3Pair && !isStage3ValidCombo) {
+    // STAGE 3 오답 조합: AI를 호출하지 않고 카드 규칙에 따른 고정 응답 (정답 유출 경로 없음)
+    aiResponse = wrongComboReply(stage3Pair.ruleA, stage3Pair.ruleB);
+  } else if (stageId === 3 && stage3Pair && isUpstageConfigured()) {
+    // STAGE 3 정답 조합: LLM은 4자리 질문 해석만, 레지스터 값·판정은 코드가 결정 (lib/stage3Engine.ts)
+    try {
+      const result = await runStage3Oracle(message, stage.secretCode, buildParserContext(history, message));
+      aiResponse = result.reply;
+      interpretation = result.interpretation;
+    } catch (err) {
+      return refundAndFail(err);
+    }
   } else if (isUpstageConfigured()) {
     try {
       // 모델: 환경변수 UPSTAGE_MODEL (기본값 solar-pro4)
@@ -419,7 +442,8 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message },
       ];
 
-      const text = await upstageChat(messages);
+      // temperature 0: 같은 질문에는 항상 같은 결과 (팀 간 공정성)
+      const text = await upstageChat(messages, { temperature: 0 });
       aiResponse = sanitizeAIResponse(text, stageId, stage.secretCode);
     } catch (err) {
       return refundAndFail(err);

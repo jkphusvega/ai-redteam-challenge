@@ -1293,7 +1293,7 @@ export default function MissionPage() {
           stageId: 3,
           message: promptToSend.trim(),
           turnNumber: newTurn,
-          history: newHistory.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          history: newHistory.slice(-8).map((m) => ({ role: m.role, content: m.content, interpretation: m.interpretation })),
           ruleIds: [stage3Rules.ruleA, stage3Rules.ruleB],
           selectedRules: selectedRuleTexts,
           isStage3ValidCombo: isValidCombo,
@@ -1320,7 +1320,15 @@ export default function MissionPage() {
       const isSuccess = Boolean(data.success);
 
       setStage3Chats((prev) => {
-        const updated: ChatMessage[] = [...prev, { role: 'model', content: replyText, isSuccess }];
+        const updated: ChatMessage[] = [
+          ...prev,
+          {
+            role: 'model',
+            content: replyText,
+            isSuccess,
+            ...(data.interpretation ? { interpretation: String(data.interpretation) } : {}),
+          },
+        ];
         if (teamName) localStorage.setItem(`team_${teamName}_stage3Chats`, JSON.stringify(updated));
         return updated;
       });
@@ -3553,6 +3561,19 @@ export default function MissionPage() {
                         >
                           {msg.content}
                         </div>
+                        {!isUser && msg.interpretation && (
+                          <div
+                            style={{
+                              maxWidth: '85%',
+                              marginTop: '4px',
+                              fontSize: '10px',
+                              color: 'var(--text-muted)',
+                              fontFamily: 'var(--font-mono)',
+                            }}
+                          >
+                            🔎 질의 해석: {msg.interpretation}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

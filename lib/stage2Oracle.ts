@@ -11,6 +11,7 @@ import 'server-only';
 import { upstageChat } from './upstage';
 import { answerStage2, validateParsedQuery, type ParsedQuery, type Stage2Cards, type Stage2Result } from './stage2Engine';
 import { buildParserMessages, extractJson, type ParserContextItem } from './stage2ParserPrompt';
+import { answerStage3Valid, type Stage3Result } from './stage3Engine';
 import { STAGE2_RULE_CARDS } from './escapeRoomData';
 
 export type { ParserContextItem };
@@ -19,8 +20,12 @@ export type { ParserContextItem };
  * 학생 질문을 ParsedQuery로 해석합니다. (승인 코드는 전달하지 않음)
  * 네트워크/LLM 오류는 예외로 던지며, 구조가 틀린 출력은 intent='unclear'로 처리합니다.
  */
-export async function parseStage2Question(message: string, context: ParserContextItem[]): Promise<ParsedQuery> {
-  const messages = buildParserMessages(message, context);
+export async function parseStage2Question(
+  message: string,
+  context: ParserContextItem[],
+  digitCount: 3 | 4 = 3
+): Promise<ParsedQuery> {
+  const messages = buildParserMessages(message, context, digitCount);
   const call = () => upstageChat(messages, { temperature: 0, maxTokens: 600, jsonObject: true, timeoutMs: 10_000 });
   let text: string;
   try {
@@ -66,4 +71,16 @@ export async function runStage2Oracle(
 ): Promise<Stage2Result & { parsed: ParsedQuery }> {
   const parsed = await parseStage2Question(message, context);
   return { ...answerStage2(parsed, code, cards), parsed };
+}
+
+/**
+ * STAGE 3 정답 조합 전용: 4자리 해석 후 진단 엔진으로 응답 (오답 조합은 호출하지 않음)
+ */
+export async function runStage3Oracle(
+  message: string,
+  code: string,
+  context: ParserContextItem[]
+): Promise<Stage3Result & { parsed: ParsedQuery }> {
+  const parsed = await parseStage2Question(message, context, 4);
+  return { ...answerStage3Valid(parsed, code), parsed };
 }

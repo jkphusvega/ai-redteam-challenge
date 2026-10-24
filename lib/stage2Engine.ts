@@ -13,7 +13,8 @@
 //                       → 예/아니오 판정으로만 정보를 얻을 수 있음
 // ============================================================
 
-export type Pos = 1 | 2 | 3;
+/** 자리 위치 (STAGE 2는 1~3, STAGE 3 코어 마스터키는 1~4) */
+export type Pos = 1 | 2 | 3 | 4;
 
 export type Expr =
   | { k: 'digit'; pos: Pos }
@@ -105,7 +106,7 @@ function finiteNum(v: unknown): number | null {
 
 function toPos(v: unknown): Pos | null {
   const n = finiteNum(v);
-  return n === 1 || n === 2 || n === 3 ? n : null;
+  return n === 1 || n === 2 || n === 3 || n === 4 ? n : null;
 }
 
 export function validateExpr(v: unknown, depth = 0): Expr | null {
@@ -127,7 +128,7 @@ export function validateExpr(v: unknown, depth = 0): Expr | null {
       return n === null ? null : { k: 'num', v: n };
     }
     case 'concat': {
-      if (!Array.isArray(v.pos) || v.pos.length < 2 || v.pos.length > 3) return null;
+      if (!Array.isArray(v.pos) || v.pos.length < 2 || v.pos.length > 4) return null;
       const pos = v.pos.map(toPos);
       return pos.some((p) => p === null) ? null : { k: 'concat', pos: pos as Pos[] };
     }
@@ -308,8 +309,10 @@ export function evalExpr(e: Expr, digits: number[]): number | null {
     }
     case 'reverse':
       return Number([...digits].reverse().join(''));
-    case 'concat':
-      return Number(e.pos.map((p) => digits[p - 1]).join(''));
+    case 'concat': {
+      const parts = e.pos.map((p) => digits[p - 1]);
+      return parts.some((d) => d === undefined) ? null : Number(parts.join(''));
+    }
     case 'count':
       return digits.filter((d) => digitPasses(e.test, d)).length;
     case 'op': {
@@ -328,7 +331,7 @@ function isInt(n: number): boolean {
   return Number.isInteger(n);
 }
 
-function isPrime(n: number): boolean {
+export function isPrime(n: number): boolean {
   if (!isInt(n) || n < 2) return false;
   for (let i = 2; i * i <= n; i++) if (n % i === 0) return false;
   return true;
@@ -435,10 +438,10 @@ export function evalCond(c: Cond, digits: number[]): boolean | null {
 // 3. 해석 문구 (사용자 질문을 어떻게 이해했는지 그대로 보여줌 — 정답 정보 없음)
 // ------------------------------------------------------------
 
-const POS_LABEL: Record<Pos, string> = { 1: '1번째 자리', 2: '2번째 자리', 3: '3번째 자리' };
+const POS_LABEL: Record<Pos, string> = { 1: '1번째 자리', 2: '2번째 자리', 3: '3번째 자리', 4: '4번째 자리' };
 const OP_SYMBOL: Record<CmpOp, string> = { eq: '=', ne: '≠', gt: '>', gte: '≥', lt: '<', lte: '≤' };
 
-function fmtNum(n: number): string {
+export function fmtNum(n: number): string {
   return isInt(n) ? String(n) : String(Math.round(n * 10000) / 10000);
 }
 
@@ -502,7 +505,7 @@ export function describeCond(c: Cond): string {
     case 'has_digit':
       return `코드에 숫자 ${c.d} 포함`;
     case 'distinct':
-      return '세 자리 숫자가 모두 다름';
+      return '모든 자리 숫자가 서로 다름';
     case 'and':
       return c.items.map(describeCond).join(' 그리고 ');
     case 'or':
@@ -594,7 +597,7 @@ function renderAction(action: Action, truth: boolean, q: ParsedQuery, code: stri
   }
 }
 
-function relationSymbol(a: number, b: number): string {
+export function relationSymbol(a: number, b: number): string {
   if (eqNum(a, b)) return '=';
   return a > b ? '>' : '<';
 }
