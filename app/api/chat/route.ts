@@ -17,11 +17,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { isUpstageConfigured, upstageChat, type UpstageMessage } from '@/lib/upstage';
-import { createServerSupabase } from '@/lib/supabase';
+import { createServerSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getSystemPrompt, getStage } from '@/lib/stagePrompts';
 import { STAGE2_CODES, STAGE3_CODE, generateTeamStage1Code } from '@/lib/missionSecrets';
 import { judgeResponse } from '@/lib/judge';
 import { isTeamSuspended, registerOrHeartbeatTeam } from '@/lib/mentorStore';
+import {
+  COOLDOWN_SECONDS,
+  DEFAULT_QUOTA_LIMIT,
+  consumeQuota,
+  getQuotaStatuses,
+  refundQuota,
+  scopeFor,
+} from '@/lib/chatQuota';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
 
 /**
@@ -82,8 +90,9 @@ function sanitizeAIResponse(text: string, stageId?: number, secretCode?: string)
 function formatValidHistory(rawHistory: ChatMessage[]): UpstageMessage[] {
   const validHistory: { role: 'user' | 'model'; content: string }[] = [];
 
+  // 클라이언트가 표시한 오류·냉각 안내(⚠, ⏳)는 AI 대화 이력에서 제외
   const cleanMessages = (rawHistory ?? []).filter(
-    (m) => m && m.content && !m.content.startsWith('⚠ 오류') && !m.content.startsWith('⚠ 서버')
+    (m) => m && m.content && !m.content.startsWith('⚠') && !m.content.startsWith('⏳')
   );
 
   let expectedRole: 'user' | 'model' = 'user';
@@ -239,6 +248,10 @@ function simulateAIResponse(
 // POST /api/chat
 // ----------------------------------------------------------
 
+function cooldownMessage(limit: number, seconds: number): string {
+  return `⏳ 이 터미널의 질문 ${limit}회를 모두 사용했습니다. ${seconds}초 냉각 후 ${limit}회가 재지급됩니다.`;
+}
+
 export async function POST(req: NextRequest) {
   let body: ChatRequest;
   try {
@@ -247,9 +260,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
   }
 
-  const { teamName, stageId, subStageId, message, turnNumber, history, selectedRules, isStage3ValidCombo } = body;
+  const { teamName, stageId, subStageId, message, history, selectedRules, isStage3ValidCombo } = body;
 
-  if (!teamName || !stageId || !message || turnNumber == null) {
+  if (!teamName || !stageId || !message) {
     return NextResponse.json({ error: '필수 필드가 누락되었습니다.' }, { status: 400 });
   }
 
@@ -265,14 +278,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 멘토 관제용 팀 하트비트
-  registerOrHeartbeatTeam({
-    teamName,
-    currentStage: stageId,
-    turnCount: turnNumber,
-  });
-
-  const supabase = createServerSupabase();
+  const supabase = isSupabaseConfigured() ? createServerSupabase() : null;
 
   // ---- 2. 스테이지별 비밀 코드 결정 ----
   let difficulty: Difficulty = 'medium';
@@ -289,8 +295,8 @@ export async function POST(req: NextRequest) {
     secretCode = STAGE3_CODE;
   }
 
-  // 기본 최대 시도 횟수: 30회 (Admin에서 최대 50회까지 설정 가능)
-  let maxAttempts = 30;
+  // 블록당 질문 한도 (game_config.max_attempts, 조회 실패 시 기본 50회)
+  let quotaLimit = DEFAULT_QUOTA_LIMIT;
 
   if (supabase) {
     try {
@@ -305,21 +311,51 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: '현재 게임이 비활성화 상태입니다.' }, { status: 403 });
         }
         difficulty = stageId === 1 ? configData.stage1_difficulty : configData.stage2_difficulty;
-        maxAttempts = configData.max_attempts;
+        if (Number.isInteger(configData.max_attempts) && configData.max_attempts > 0) {
+          quotaLimit = configData.max_attempts;
+        }
       }
     } catch {
       // Supabase 오류 시 로컬 기본값 사용
     }
   }
 
-  if (turnNumber > maxAttempts) {
-    return NextResponse.json({ error: `최대 시도 횟수(${maxAttempts}회)를 초과했습니다. 멘토에게 문의하세요.` }, { status: 429 });
+  // ---- 2-1. 질문 할당량 차감 (서버 단일 관리: 한도 소진 → 냉각 → 재지급) ----
+  const scope = scopeFor(stageId, subStageId);
+  const { allowed, status: quota } = await consumeQuota(teamName, scope, quotaLimit);
+
+  // 멘토 관제용 팀 하트비트 (냉각 상태 포함)
+  registerOrHeartbeatTeam({
+    teamName,
+    currentStage: stageId,
+    turnCount: quota.totalUsed,
+    isCoolingDown: quota.cooldownRemainingSec > 0,
+    ...(quota.cooldownRemainingSec > 0
+      ? { cooldownNotice: `[${scope}] 질문 ${quota.limit}회 소진 — ${COOLDOWN_SECONDS}초 냉각 후 재지급` }
+      : {}),
+  });
+
+  if (!allowed) {
+    return NextResponse.json(
+      { error: cooldownMessage(quota.limit, quota.cooldownRemainingSec), cooldown: true, quota },
+      { status: 429 }
+    );
   }
+
+  const refundAndFail = async (err: unknown) => {
+    console.warn('[chat] Upstage API 호출 실패:', err);
+    await refundQuota(teamName, scope, quotaLimit);
+    const statuses = await getQuotaStatuses(teamName, quotaLimit);
+    return NextResponse.json(
+      { error: 'AI 연결이 불안정합니다. 잠시 후 다시 시도해 주세요. (질문 횟수는 차감되지 않았습니다)', aiUnavailable: true, quota: statuses[scope] },
+      { status: 503 }
+    );
+  };
 
   const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode, selectedRules, isStage3ValidCombo);
   const stage = getStage(stageId, secretCode);
 
-  // ---- 3. AI 응답 생성 (Upstage Solar 호출 또는 로컬 모의 시뮬레이션) ----
+  // ---- 3. AI 응답 생성 ----
   let aiResponse = '';
 
   if (isUpstageConfigured()) {
@@ -334,11 +370,7 @@ export async function POST(req: NextRequest) {
       const text = await upstageChat(messages);
       aiResponse = sanitizeAIResponse(text, stageId, stage.secretCode);
     } catch (err) {
-      console.warn('[chat] Upstage API 호출 실패:', err);
-      return NextResponse.json(
-        { error: 'AI 연결이 불안정합니다. 잠시 후 다시 시도해 주세요.', aiUnavailable: true },
-        { status: 503 }
-      );
+      return refundAndFail(err);
     }
   } else {
     // UPSTAGE_API_KEY가 없는 로컬 개발 환경에서만 스마트 시뮬레이션 동작
@@ -358,7 +390,7 @@ export async function POST(req: NextRequest) {
         prompt_text: message,
         ai_response: aiResponse,
         success,
-        turn_number: turnNumber,
+        turn_number: quota.totalUsed,
       });
     } catch {
       // 무시
@@ -369,6 +401,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     reply: aiResponse,
     success,
+    quota,
     ...(success && matchedPattern ? { matchedPattern } : {}),
   });
 }

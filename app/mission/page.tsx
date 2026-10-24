@@ -34,6 +34,24 @@ interface ChatMessage {
   isSuccess?: boolean;
 }
 
+// 질문 할당량: 한도·냉각·남은 횟수는 서버(/api/chat, /api/chat/quota)가 내려주는 값만 사용
+type QuotaScope = 's1' | 's2-1' | 's2-2' | 's3';
+
+interface ServerQuotaStatus {
+  scope: QuotaScope;
+  limit: number;
+  used: number;
+  remaining: number;
+  cooldownRemainingSec: number;
+}
+
+interface ClientQuota {
+  limit: number;
+  remaining: number;
+  /** 냉각 종료 시각 (이 브라우저 기준 ms, 0이면 냉각 아님) */
+  cooldownUntil: number;
+}
+
 export default function MissionPage() {
   const router = useRouter();
 
@@ -120,11 +138,55 @@ export default function MissionPage() {
   const [stage1Cooldown, setStage1Cooldown] = useState(0);
   const [stage2WrongCounts, setStage2WrongCounts] = useState<Record<1 | 2, number>>({ 1: 0, 2: 0 });
   const [stage2Cooldowns, setStage2Cooldowns] = useState<Record<1 | 2, number>>({ 1: 0, 2: 0 });
-  const currentSubCooldown = stage2Cooldowns[activeSubStage] || 0;
+  // 서버 질문 할당량 (터미널별)
+  const [quotas, setQuotas] = useState<Partial<Record<QuotaScope, ClientQuota>>>({});
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  function applyQuota(status: ServerQuotaStatus | undefined) {
+    if (!status || !status.scope) return;
+    setQuotas((prev) => ({
+      ...prev,
+      [status.scope]: {
+        limit: status.limit,
+        remaining: status.remaining,
+        cooldownUntil: status.cooldownRemainingSec > 0 ? Date.now() + status.cooldownRemainingSec * 1000 : 0,
+      },
+    }));
+  }
+
+  async function refreshQuotas(team: string) {
+    try {
+      const res = await fetch(`/api/chat/quota?teamName=${encodeURIComponent(team)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      Object.values((data.quotas || {}) as Record<string, ServerQuotaStatus>).forEach(applyQuota);
+    } catch {
+      // 다음 응답에서 다시 동기화
+    }
+  }
+
+  function cooldownSecFor(scope: QuotaScope): number {
+    const q = quotas[scope];
+    return q && q.cooldownUntil > nowTick ? Math.ceil((q.cooldownUntil - nowTick) / 1000) : 0;
+  }
+
+  function quotaLabel(scope: QuotaScope): string {
+    const q = quotas[scope];
+    if (!q) return '남은 질문: 확인 중...';
+    const sec = cooldownSecFor(scope);
+    if (sec > 0) return `⏳ 냉각 중 ${sec}초 — 종료 후 ${q.limit}회 재지급`;
+    return `남은 질문: ${q.remaining}/${q.limit}회`;
+  }
+
+  const stage2Scope: QuotaScope = activeSubStage === 2 ? 's2-2' : 's2-1';
+  const stage1QuotaCooldown = cooldownSecFor('s1');
+  const stage2QuotaCooldown = cooldownSecFor(stage2Scope);
+  const stage3QuotaCooldown = cooldownSecFor('s3');
 
   // 1초 주기 쿨다운 타이머 (쿨다운 종료 시 오답 누적 카운트 0으로 초기화)
   useEffect(() => {
     const timer = setInterval(() => {
+      setNowTick(Date.now());
       setStage1Cooldown((prev) => {
         if (prev === 1) {
           setStage1WrongCount(0);
@@ -149,6 +211,17 @@ export default function MissionPage() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // 팀 확정 시 서버 할당량 동기화
+  useEffect(() => {
+    if (teamName) refreshQuotas(teamName);
+  }, [teamName]);
+
+  // 냉각이 끝난 터미널이 있으면 서버에서 재지급된 값을 다시 받아옴
+  const hasExpiredCooldown = Object.values(quotas).some((q) => q && q.cooldownUntil > 0 && q.cooldownUntil <= nowTick);
+  useEffect(() => {
+    if (hasExpiredCooldown && teamName) refreshQuotas(teamName);
+  }, [hasExpiredCooldown, teamName]);
 
   // STAGE 2 조합 중복 검사 헬퍼: 다른 서브 터미널에서 이미 적용(또는 클리어)된 [ruleA + ruleB] 동일 쌍인지 확인
   function isStage2ComboUsedInOtherSub(ruleAId: string | null, ruleBId: string | null, currentSubId: 1 | 2): boolean {
@@ -615,7 +688,7 @@ export default function MissionPage() {
   // ------------------------------------------------------------
   async function handleSendMessage(customPrompt?: string) {
     const promptToSend = customPrompt || inputMessage;
-    if (!promptToSend.trim() || isSending) return;
+    if (!promptToSend.trim() || isSending || stage1QuotaCooldown > 0) return;
 
     if (sendBtnRef.current) {
       gsap.fromTo(
@@ -654,15 +727,13 @@ export default function MissionPage() {
       });
 
       const data = await res.json().catch(() => ({}));
+      applyQuota(data.quota);
 
       if (!res.ok) {
-        if (res.status === 503) {
+        if (res.status === 503 || res.status === 429) {
           setTurnCount((prev) => Math.max(0, prev - 1));
         }
-        const msg =
-          res.status === 429
-            ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
-            : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
+        const msg = res.status === 429 && data.cooldown ? data.error : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
         setChatMessages((prev) => {
           const next = [
             ...prev,
@@ -926,16 +997,9 @@ export default function MissionPage() {
     const cur = stage2Rules[activeSubStage];
     if (!promptToSend.trim() || stage2IsSending || !cur.isApplied || !cur.ruleA || !cur.ruleB) return;
 
-    if (stage2Cooldowns[activeSubStage] > 0) {
-      alert(`⏳ 현재 1분 냉각 대기 중입니다. (${stage2Cooldowns[activeSubStage]}초 남음) 대화 내용을 검토해 보세요.`);
-      return;
-    }
+    if (stage2QuotaCooldown > 0) return;
 
     const currentTurn = stage2TurnCounts[activeSubStage] || 0;
-    if (currentTurn >= 50) {
-      alert('🔒 해당 서브 터미널의 최대 질문 횟수(50회)를 초과했습니다. 멘토에게 문의하세요.');
-      return;
-    }
 
     if (stage2SendBtnRef.current) {
       gsap.fromTo(
@@ -952,22 +1016,6 @@ export default function MissionPage() {
       localStorage.setItem(`team_${teamName}_stage2TurnCounts`, JSON.stringify(nextTurnCounts));
     }
     setStage2InputMessage('');
-
-    // 10회 단위 시도 시 1분(60초) 대기 쿨다운 및 멘토 알림
-    if (newTurn % 10 === 0 && newTurn < 50) {
-      setStage2Cooldowns((prev) => ({ ...prev, [activeSubStage]: 60 }));
-      fetch('/api/mentor/teams', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamName,
-          isCoolingDown: true,
-          coolingSubStage: activeSubStage,
-          cooldownNotice: `[2-${activeSubStage === 1 ? 'A 냉각' : 'B 방화벽'}] 10회 질문 도달로 1분 냉각 대기 중 (현재 ${newTurn}/50회)`,
-          turnCount: newTurn,
-        }),
-      }).catch(() => {});
-    }
 
     const currentSubChat = stage2Chats[activeSubStage] || [];
     const newHistory: ChatMessage[] = [
@@ -1007,18 +1055,16 @@ export default function MissionPage() {
       });
 
       const data = await res.json().catch(() => ({}));
+      applyQuota(data.quota);
 
       if (!res.ok) {
-        if (res.status === 503) {
+        if (res.status === 503 || res.status === 429) {
           setStage2TurnCounts((prev) => ({
             ...prev,
             [activeSubStage]: Math.max(0, (prev[activeSubStage] || 0) - 1),
           }));
         }
-        const msg =
-          res.status === 429
-            ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
-            : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
+        const msg = res.status === 429 && data.cooldown ? data.error : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
         setStage2Chats((prev) => {
           const next = {
             ...prev,
@@ -1200,11 +1246,7 @@ export default function MissionPage() {
   async function handleSendStage3Message(customPrompt?: string) {
     const promptToSend = customPrompt || stage3InputMessage;
     if (!promptToSend.trim() || stage3IsSending || !stage3Rules.isApplied || !stage3Rules.ruleA || !stage3Rules.ruleB) return;
-
-    if (stage3TurnCount >= 50) {
-      alert('🔒 중앙 코어 터미널의 최대 질문 횟수(50회)를 초과했습니다. 멘토에게 문의하세요.');
-      return;
-    }
+    if (stage3QuotaCooldown > 0) return;
 
     if (stage3SendBtnRef.current) {
       gsap.fromTo(
@@ -1255,15 +1297,13 @@ export default function MissionPage() {
       });
 
       const data = await res.json().catch(() => ({}));
+      applyQuota(data.quota);
 
       if (!res.ok) {
-        if (res.status === 503) {
+        if (res.status === 503 || res.status === 429) {
           setStage3TurnCount((prev) => Math.max(0, prev - 1));
         }
-        const msg =
-          res.status === 429
-            ? '⚠ 이 단계의 질문 횟수를 모두 사용했습니다. 멘토에게 문의하세요.'
-            : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
+        const msg = res.status === 429 && data.cooldown ? data.error : `⚠ ${data.error ?? '요청을 처리하지 못했습니다.'}`;
         setStage3Chats((prev) => {
           const updated: ChatMessage[] = [...prev, { role: 'model', content: msg }];
           if (teamName) localStorage.setItem(`team_${teamName}_stage3Chats`, JSON.stringify(updated));
@@ -1958,7 +1998,9 @@ export default function MissionPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ color: 'var(--cyan)' }}>시도 횟수: <strong>{turnCount}/50회</strong></span>
+                  <span style={{ color: stage1QuotaCooldown > 0 ? 'var(--red)' : 'var(--cyan)' }}>
+                    <strong>{quotaLabel('s1')}</strong>
+                  </span>
                   <button
                     onClick={() => {
                       const resetMsg = [{
@@ -2137,7 +2179,7 @@ export default function MissionPage() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      if (!isSuspended && !isSending && typingMessageIndex === null && inputMessage.trim()) {
+                      if (!isSuspended && !isSending && typingMessageIndex === null && inputMessage.trim() && stage1QuotaCooldown === 0) {
                         handleSendMessage();
                       }
                     }
@@ -2145,6 +2187,8 @@ export default function MissionPage() {
                   placeholder={
                     isSuspended
                       ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
+                      : stage1QuotaCooldown > 0
+                      ? `>> ${quotaLabel('s1')}`
                       : typingMessageIndex !== null
                       ? '>> 수문장 AI가 답변을 작성하고 있습니다...'
                       : '>> 인젝션 공격 프롬프트를 주입하세요... (줄바꿈: Shift+Enter, 전송: Enter)'
@@ -2163,16 +2207,16 @@ export default function MissionPage() {
                     minHeight: '48px',
                     maxHeight: '120px',
                   }}
-                  disabled={isSending || typingMessageIndex !== null || isSuspended}
+                  disabled={isSending || typingMessageIndex !== null || isSuspended || stage1QuotaCooldown > 0}
                 />
                 <button
                   ref={sendBtnRef}
                   onClick={() => handleSendMessage()}
-                  disabled={isSending || typingMessageIndex !== null || !inputMessage.trim() || isSuspended}
+                  disabled={isSending || typingMessageIndex !== null || !inputMessage.trim() || isSuspended || stage1QuotaCooldown > 0}
                   className="btn-neon"
                   style={{ padding: '0 24px', fontSize: '13px', whiteSpace: 'nowrap', borderRadius: '8px', fontFamily: 'var(--font-mono)' }}
                 >
-                  {isSending ? '전송 중...' : typingMessageIndex !== null ? '답변 수신 중...' : isSuspended ? '정지됨' : '⚡ 공격 패킷 전송 (INJECT)'}
+                  {isSending ? '전송 중...' : typingMessageIndex !== null ? '답변 수신 중...' : isSuspended ? '정지됨' : stage1QuotaCooldown > 0 ? `⏳ 냉각 ${stage1QuotaCooldown}s` : '⚡ 공격 패킷 전송 (INJECT)'}
                 </button>
               </div>
             </div>
@@ -2780,7 +2824,7 @@ export default function MissionPage() {
                           </p>
                         </div>
 
-                        <div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
                           {isCurrentCleared ? (
                             <span className="badge badge-green" style={{ fontSize: '11px', padding: '4px 10px' }}>
                               ✅ {currentSub.badge} 인증 완료
@@ -2790,6 +2834,15 @@ export default function MissionPage() {
                               ⚡ {currentSub.badge} 추출 필요
                             </span>
                           )}
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontFamily: 'var(--font-mono)',
+                              color: stage2QuotaCooldown > 0 ? 'var(--red)' : 'var(--cyan)',
+                            }}
+                          >
+                            {quotaLabel(stage2Scope)}
+                          </span>
                         </div>
                       </div>
 
@@ -2896,9 +2949,11 @@ export default function MissionPage() {
                           placeholder={
                             isSuspended
                               ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
+                              : stage2QuotaCooldown > 0
+                              ? `>> ${quotaLabel(stage2Scope)}`
                               : `>> ${currentSub.shortTitle}의 ${currentSub.badge}를 도출하기 위한 모순 유도 질문을 입력하세요...`
                           }
-                          disabled={stage2IsSending || isSuspended}
+                          disabled={stage2IsSending || isSuspended || stage2QuotaCooldown > 0}
                           style={{
                             flex: 1,
                             background: isSuspended ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.5)',
@@ -2914,11 +2969,11 @@ export default function MissionPage() {
                         <button
                           ref={stage2SendBtnRef}
                           type="submit"
-                          disabled={stage2IsSending || !stage2InputMessage.trim() || isSuspended}
+                          disabled={stage2IsSending || !stage2InputMessage.trim() || isSuspended || stage2QuotaCooldown > 0}
                           className="btn btn-primary"
                           style={{ padding: '0 24px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
                         >
-                          {isSuspended ? '정지됨' : '전송'}
+                          {isSuspended ? '정지됨' : stage2QuotaCooldown > 0 ? `⏳ ${stage2QuotaCooldown}s` : '전송'}
                         </button>
                       </form>
 
@@ -3397,7 +3452,10 @@ export default function MissionPage() {
                       </span>
                     </div>
                     <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      장착된 프로토콜의 취약점을 공략하여 4자리 코어 마스터키를 탈취하십시오. (질문 시도: {stage3TurnCount}/50회)
+                      장착된 프로토콜의 취약점을 공략하여 4자리 코어 마스터키를 탈취하십시오.{' '}
+                      <span style={{ color: stage3QuotaCooldown > 0 ? 'var(--red)' : 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
+                        ({quotaLabel('s3')})
+                      </span>
                     </p>
                   </div>
 
@@ -3504,9 +3562,11 @@ export default function MissionPage() {
                     placeholder={
                       isSuspended
                         ? '>> [일시 정지됨] 멘토에 의해 팀 활동이 정지되었습니다.'
+                        : stage3QuotaCooldown > 0
+                        ? `>> ${quotaLabel('s3')}`
                         : '>> 코어 마스터키 추출을 위한 침투 질문을 입력하세요...'
                     }
-                    disabled={stage3IsSending || isSuspended}
+                    disabled={stage3IsSending || isSuspended || stage3QuotaCooldown > 0}
                     style={{
                       flex: 1,
                       background: isSuspended ? 'rgba(255, 59, 92, 0.08)' : 'rgba(0, 0, 0, 0.5)',
@@ -3522,11 +3582,11 @@ export default function MissionPage() {
                   <button
                     ref={stage3SendBtnRef}
                     type="submit"
-                    disabled={stage3IsSending || !stage3InputMessage.trim() || isSuspended}
+                    disabled={stage3IsSending || !stage3InputMessage.trim() || isSuspended || stage3QuotaCooldown > 0}
                     className="btn btn-primary"
                     style={{ padding: '0 24px', fontSize: '13px', background: 'var(--purple)', fontFamily: 'var(--font-mono)' }}
                   >
-                    {isSuspended ? '정지됨' : '전송'}
+                    {isSuspended ? '정지됨' : stage3QuotaCooldown > 0 ? `⏳ ${stage3QuotaCooldown}s` : '전송'}
                   </button>
                 </form>
 

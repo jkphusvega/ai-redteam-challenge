@@ -63,7 +63,8 @@ export interface ChatRequest {
   stageId: 1 | 2 | 3;
   subStageId?: 1 | 2 | 3;
   message: string;
-  turnNumber: number;
+  /** 표시·기록용. 한도 판정에는 사용하지 않음 (서버 할당량 기준) */
+  turnNumber?: number;
   history: ChatMessage[];
   selectedRules?: string[];
   isStage3ValidCombo?: boolean;

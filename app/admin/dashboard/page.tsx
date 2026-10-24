@@ -323,7 +323,7 @@ export default function AdminDashboard() {
               </div>
             </div>
             <p style={{ margin: '8px 0 0', fontSize: '12px' }} className="text-muted">
-              기본 30회 / 최대 50회까지 조정 가능 (모든 학생 기기에 즉시 반영됩니다)
+              터미널별 1회 지급량 (권장 50회) — 소진 시 1분 냉각 후 같은 횟수가 재지급됩니다
             </p>
           </div>
 
