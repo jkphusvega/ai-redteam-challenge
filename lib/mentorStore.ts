@@ -30,6 +30,11 @@ export interface SentHint {
   sentAt: string;
 }
 
+export interface SentHintsResult {
+  sent: SentHint[];
+  persistent: boolean;
+}
+
 const DEFAULT_LIBRARY_HINTS: LibraryHint[] = [
   // ============================================================
   // STAGE 1: 프롬프트 인젝션 (마스터키 탈취) 4대 공략 힌트
@@ -621,6 +626,7 @@ export async function deleteTeam(teamName: string): Promise<boolean> {
       await Promise.allSettled([
         supabase.from('attempts').delete().eq('team_name', cleanName),
         supabase.from('defense_submissions').delete().eq('team_name', cleanName),
+        supabase.from('mentor_sent_hints').delete().ilike('team_name', cleanName),
         supabase.from('mentor_team_status').upsert({ team_name: cleanName, status: 'deleted', updated_at: new Date().toISOString() }),
       ]);
     }
@@ -679,18 +685,48 @@ export function deleteLibraryHint(hintId: string): boolean {
   return true;
 }
 
-export function getSentHints(teamName?: string): SentHint[] {
-  const sent = g.__mentorSentHints || [];
-  if (!teamName) return sent;
+export async function getSentHints(teamName?: string): Promise<SentHintsResult> {
+  try {
+    const supabase = createServerSupabase();
+    let query = supabase
+      .from('mentor_sent_hints')
+      .select('id, team_name, title, content, created_at')
+      .order('created_at', { ascending: false });
+
+    if (teamName) {
+      query = query.ilike('team_name', teamName.trim());
+    }
+
+    const { data, error } = await query;
+    if (!error && data) {
+      const sent = data.map((row) => ({
+        id: String(row.id),
+        teamName: String(row.team_name),
+        hintTitle: String(row.title),
+        hintContent: String(row.content),
+        sentAt: String(row.created_at),
+      }));
+      g.__mentorSentHints = sent;
+      return { sent, persistent: true };
+    }
+  } catch {
+    // DB 테이블 미적용 또는 일시적 통신 오류 시 인메모리 데이터로 폴백
+  }
+
+  const memorySent = g.__mentorSentHints || [];
+  if (!teamName) return { sent: memorySent, persistent: false };
   const normalized = teamName.trim().toLowerCase();
-  return sent.filter((s) => s.teamName.trim().toLowerCase() === normalized);
+  return {
+    sent: memorySent.filter((s) => s.teamName.trim().toLowerCase() === normalized),
+    persistent: false,
+  };
 }
 
-export function sendHintToTeam(
+export async function sendHintToTeam(
   teamName: string,
   titleOrHint: string | { title: string; content: string },
   maybeContent?: string
-): SentHint {
+): Promise<SentHint> {
   const cleanName = teamName.trim();
   const title = typeof titleOrHint === 'string' ? titleOrHint : titleOrHint.title;
   const content = typeof titleOrHint === 'string' ? (maybeContent || '') : titleOrHint.content;
@@ -707,11 +743,16 @@ export function sendHintToTeam(
   try {
     const supabase = createServerSupabase();
     if (supabase) {
-      supabase.from('mentor_sent_hints').insert({
+      const { error } = await supabase.from('mentor_sent_hints').insert({
+        id: newSent.id,
         team_name: cleanName,
         title: title.trim(),
         content: content.trim(),
-      }).then(() => {}, () => {});
+        created_at: newSent.sentAt,
+      });
+      if (error) {
+        console.error('[mentor/hints] 힌트 영구 저장 실패:', error.message);
+      }
     }
   } catch {
     // 무시
@@ -720,8 +761,19 @@ export function sendHintToTeam(
   return newSent;
 }
 
-export function deleteSentHint(sentHintId: string): boolean {
-  if (!g.__mentorSentHints) return false;
-  g.__mentorSentHints = g.__mentorSentHints.filter((s) => s.id !== sentHintId);
-  return true;
+export async function deleteSentHint(sentHintId: string): Promise<boolean> {
+  const existedInMemory = Boolean(g.__mentorSentHints?.some((s) => s.id === sentHintId));
+  if (g.__mentorSentHints) {
+    g.__mentorSentHints = g.__mentorSentHints.filter((s) => s.id !== sentHintId);
+  }
+
+  try {
+    const supabase = createServerSupabase();
+    const { error } = await supabase.from('mentor_sent_hints').delete().eq('id', sentHintId);
+    if (!error) return true;
+  } catch {
+    // DB 테이블 미적용 또는 일시적 통신 오류 시 메모리 삭제 결과 사용
+  }
+
+  return existedInMemory;
 }

@@ -63,14 +63,31 @@ create table if not exists defense_submissions (
 create index if not exists idx_defense_team_name on defense_submissions (team_name);
 
 -- ----------------------------------------------------------
--- 4. Realtime 활성화
+-- 4. mentor_sent_hints — 멘토가 팀별로 전송한 힌트
+-- ----------------------------------------------------------
+
+create table if not exists mentor_sent_hints (
+  id text primary key,
+  team_name text not null,
+  title text not null,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_mentor_sent_hints_team_name
+  on mentor_sent_hints (team_name);
+create index if not exists idx_mentor_sent_hints_created_at
+  on mentor_sent_hints (created_at desc);
+
+-- ----------------------------------------------------------
+-- 5. Realtime 활성화
 -- ----------------------------------------------------------
 
 alter publication supabase_realtime add table game_config;
 alter publication supabase_realtime add table attempts;
 
 -- ----------------------------------------------------------
--- 5. RLS 정책 설정
+-- 6. RLS 정책 설정
 -- ----------------------------------------------------------
 
 alter table game_config enable row level security;
@@ -89,8 +106,11 @@ drop policy if exists "defense 쓰기 허용" on defense_submissions;
 create policy "defense 읽기 허용" on defense_submissions for select using (true);
 create policy "defense 쓰기 허용" on defense_submissions for insert with check (true);
 
+-- 멘토 힌트는 서버의 service role을 통해서만 접근합니다.
+alter table mentor_sent_hints enable row level security;
+
 -- ----------------------------------------------------------
--- 6. 초기 데이터 삽입 (비밀번호: admin1234)
+-- 7. 초기 데이터 삽입 (비밀번호: admin1234)
 -- ----------------------------------------------------------
 
 insert into game_config (

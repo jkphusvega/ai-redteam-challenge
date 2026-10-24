@@ -32,10 +32,11 @@ export async function GET(req: NextRequest) {
 
   // 학생 클라이언트의 본인 팀 힌트 수신 (인증 불필요)
   if (teamName) {
-    const sent = getSentHints(teamName);
+    const { sent, persistent } = await getSentHints(teamName);
     return NextResponse.json({
       library: [],
       sent,
+      persistent,
       activeTeams: [],
     });
   }
@@ -46,19 +47,20 @@ export async function GET(req: NextRequest) {
   }
 
   const library = getLibraryHints();
-  const sent = getSentHints();
+  const { sent, persistent } = await getSentHints();
 
   const allTeams = await getTeams();
   const activeTeams = Array.from(
     new Set([
       ...allTeams.map((t) => t.teamName),
-      ...getSentHints().map((s) => s.teamName),
+      ...sent.map((s) => s.teamName),
     ])
   );
 
   return NextResponse.json({
     library,
     sent,
+    persistent,
     activeTeams,
   });
 }
@@ -119,7 +121,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '대상 팀 이름과 힌트 정보가 필요합니다.' }, { status: 400 });
     }
 
-    const sent = sendHintToTeam(targetTeam, {
+    const sent = await sendHintToTeam(targetTeam, {
       title: body.hint.title,
       content: body.hint.content,
     });
@@ -133,7 +135,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '삭제할 발송 힌트 ID가 필요합니다.' }, { status: 400 });
     }
 
-    const ok = deleteSentHint(body.sentHintId);
+    const ok = await deleteSentHint(body.sentHintId);
     return NextResponse.json({ success: ok });
   }
 
