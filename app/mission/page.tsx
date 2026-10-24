@@ -32,6 +32,7 @@ interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   isSuccess?: boolean;
+  interpretation?: string;
 }
 
 // 질문 할당량: 한도·냉각·남은 횟수는 서버(/api/chat, /api/chat/quota)가 내려주는 값만 사용
@@ -1049,7 +1050,8 @@ export default function MissionPage() {
           subStageId: activeSubStage,
           message: promptToSend.trim(),
           turnNumber: newTurn,
-          history: newHistory.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          history: newHistory.slice(-8).map((m) => ({ role: m.role, content: m.content, interpretation: m.interpretation })),
+          ruleIds: [cur.ruleA, cur.ruleB],
           selectedRules: selectedRuleTexts,
         }),
       });
@@ -1093,6 +1095,7 @@ export default function MissionPage() {
               role: 'model',
               content: replyText,
               isSuccess,
+              ...(data.interpretation ? { interpretation: String(data.interpretation) } : {}),
             },
           ],
         };
@@ -1291,6 +1294,7 @@ export default function MissionPage() {
           message: promptToSend.trim(),
           turnNumber: newTurn,
           history: newHistory.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          ruleIds: [stage3Rules.ruleA, stage3Rules.ruleB],
           selectedRules: selectedRuleTexts,
           isStage3ValidCombo: isValidCombo,
         }),
@@ -2923,6 +2927,19 @@ export default function MissionPage() {
                                 )}
                                 {msg.content}
                               </div>
+                              {!isUser && msg.interpretation && (
+                                <div
+                                  style={{
+                                    maxWidth: '85%',
+                                    marginTop: '4px',
+                                    fontSize: '10px',
+                                    color: 'var(--text-muted)',
+                                    fontFamily: 'var(--font-mono)',
+                                  }}
+                                >
+                                  🔎 질의 해석: {msg.interpretation}
+                                </div>
+                              )}
                             </div>
                           );
                         })}

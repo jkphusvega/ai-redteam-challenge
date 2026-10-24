@@ -35,7 +35,7 @@ export function getUpstageModel(): string {
  */
 export async function upstageChat(
   messages: UpstageMessage[],
-  options: { temperature?: number; maxTokens?: number; timeoutMs?: number } = {}
+  options: { temperature?: number; maxTokens?: number; timeoutMs?: number; jsonObject?: boolean } = {}
 ): Promise<string> {
   const apiKey = getUpstageApiKey();
   if (!apiKey) throw new Error('UPSTAGE_API_KEY가 설정되지 않았습니다.');
@@ -62,6 +62,7 @@ export async function upstageChat(
         messages,
         temperature: options.temperature ?? 0.7,
         ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+        ...(options.jsonObject ? { response_format: { type: 'json_object' } } : {}),
         stream: false,
       }),
       signal: controller.signal,

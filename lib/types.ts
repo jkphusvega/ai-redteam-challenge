@@ -55,6 +55,8 @@ export interface Stage {
 export interface ChatMessage {
   role: 'user' | 'model';
   content: string;
+  /** STAGE 2: 서버가 질문을 어떻게 해석했는지 (다음 질문의 생략 해석에 사용) */
+  interpretation?: string;
 }
 
 /** /api/chat 요청 바디 */
@@ -66,6 +68,8 @@ export interface ChatRequest {
   /** 표시·기록용. 한도 판정에는 사용하지 않음 (서버 할당량 기준) */
   turnNumber?: number;
   history: ChatMessage[];
+  /** 장착 카드 ID [A그룹, B그룹] — 서버가 규칙을 직접 확정 */
+  ruleIds?: string[];
   selectedRules?: string[];
   isStage3ValidCombo?: boolean;
 }
@@ -75,6 +79,7 @@ export interface ChatResponse {
   reply: string;
   success: boolean;
   matchedPattern?: string;
+  interpretation?: string;
 }
 
 // ----------------------------------------------------------

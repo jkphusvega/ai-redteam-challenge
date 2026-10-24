@@ -30,6 +30,9 @@ import {
   refundQuota,
   scopeFor,
 } from '@/lib/chatQuota';
+import { resolveStage2Cards, runStage2Oracle, type ParserContextItem } from '@/lib/stage2Oracle';
+import type { Stage2Cards } from '@/lib/stage2Engine';
+import { STAGE2_RULE_CARDS, STAGE3_RULE_CARDS, isStage3ComboValid } from '@/lib/escapeRoomData';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
 
 /**
@@ -248,6 +251,25 @@ function simulateAIResponse(
 // POST /api/chat
 // ----------------------------------------------------------
 
+/**
+ * STAGE 2 해석기용 이전 질의 목록 (현재 질문 제외, 최근 3개)
+ */
+function buildParserContext(rawHistory: ChatMessage[], currentMessage: string): ParserContextItem[] {
+  const items: ParserContextItem[] = [];
+  for (const m of rawHistory ?? []) {
+    if (!m || typeof m.content !== 'string') continue;
+    if (m.role === 'user') {
+      items.push({ question: m.content.trim() });
+    } else if (m.interpretation && items.length > 0) {
+      items[items.length - 1].interpretation = m.interpretation;
+    }
+  }
+  if (items.length > 0 && items[items.length - 1].question === currentMessage.trim() && !items[items.length - 1].interpretation) {
+    items.pop();
+  }
+  return items.slice(-3);
+}
+
 function cooldownMessage(limit: number, seconds: number): string {
   return `⏳ 이 터미널의 질문 ${limit}회를 모두 사용했습니다. ${seconds}초 냉각 후 ${limit}회가 재지급됩니다.`;
 }
@@ -260,7 +282,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
   }
 
-  const { teamName, stageId, subStageId, message, history, selectedRules, isStage3ValidCombo } = body;
+  const { teamName, stageId, subStageId, message, history, ruleIds } = body;
+  let { selectedRules, isStage3ValidCombo } = body;
 
   if (!teamName || !stageId || !message) {
     return NextResponse.json({ error: '필수 필드가 누락되었습니다.' }, { status: 400 });
@@ -268,6 +291,25 @@ export async function POST(req: NextRequest) {
 
   if (stageId !== 1 && stageId !== 2 && stageId !== 3) {
     return NextResponse.json({ error: '유효하지 않은 스테이지입니다.' }, { status: 400 });
+  }
+
+  // 장착 카드는 클라이언트 텍스트가 아닌 카드 ID로 서버에서 확정
+  let stage2Cards: Stage2Cards | null = null;
+  if (stageId === 2) {
+    stage2Cards = resolveStage2Cards(ruleIds, selectedRules);
+    if (!stage2Cards) {
+      return NextResponse.json({ error: '장착된 보안 규칙 카드 정보가 올바르지 않습니다. 카드를 다시 장착해 주세요.' }, { status: 400 });
+    }
+    selectedRules = (ruleIds ?? [])
+      .map((id) => STAGE2_RULE_CARDS.find((c) => c.id === id))
+      .filter(Boolean)
+      .map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
+  } else if (stageId === 3 && Array.isArray(ruleIds) && ruleIds.length === 2) {
+    const cards = ruleIds.map((id) => STAGE3_RULE_CARDS.find((c) => c.id === id));
+    if (cards.every(Boolean)) {
+      selectedRules = cards.map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
+      isStage3ValidCombo = isStage3ComboValid(ruleIds[0], ruleIds[1]);
+    }
   }
 
   // 멘토에 의한 팀 일시 정지 (개별 또는 전체) 확인
@@ -357,8 +399,18 @@ export async function POST(req: NextRequest) {
 
   // ---- 3. AI 응답 생성 ----
   let aiResponse = '';
+  let interpretation: string | undefined;
 
-  if (isUpstageConfigured()) {
+  if (stageId === 2 && stage2Cards && isUpstageConfigured()) {
+    // STAGE 2: LLM은 질문 해석만, 참/거짓과 응답은 코드가 결정 (lib/stage2Engine.ts)
+    try {
+      const result = await runStage2Oracle(message, stage.secretCode, stage2Cards, buildParserContext(history, message));
+      aiResponse = result.reply;
+      interpretation = result.interpretation;
+    } catch (err) {
+      return refundAndFail(err);
+    }
+  } else if (isUpstageConfigured()) {
     try {
       // 모델: 환경변수 UPSTAGE_MODEL (기본값 solar-pro4)
       const messages: UpstageMessage[] = [
@@ -387,8 +439,8 @@ export async function POST(req: NextRequest) {
       await supabase.from('attempts').insert({
         team_name: teamName,
         stage: stageId,
-        prompt_text: message,
-        ai_response: aiResponse,
+        prompt_text: stageId === 2 ? `[2-${subStageId === 2 ? 'B' : 'A'}] ${message}` : message,
+        ai_response: interpretation ? `${aiResponse}\n[해석] ${interpretation}` : aiResponse,
         success,
         turn_number: quota.totalUsed,
       });
@@ -402,6 +454,7 @@ export async function POST(req: NextRequest) {
     reply: aiResponse,
     success,
     quota,
+    ...(interpretation ? { interpretation } : {}),
     ...(success && matchedPattern ? { matchedPattern } : {}),
   });
 }
