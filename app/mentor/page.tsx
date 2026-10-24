@@ -1239,7 +1239,7 @@ export default function MentorPage() {
                             }}
                           >
                             <span className="pulse-dot pulse-dot-red" style={{ width: '6px', height: '6px' }} />
-                            <span>⚠️ {team.cooldownNotice || '10회 질문 초과 (1분 냉각 대기 중)'}</span>
+                            <span>⚠️ {team.cooldownNotice || '질문 할당량 소진 (1분 냉각 후 재지급)'}</span>
                           </div>
                         )}
                       </div>
