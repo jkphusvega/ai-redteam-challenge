@@ -33,6 +33,7 @@ export interface SentHint {
 export interface SentHintsResult {
   sent: SentHint[];
   persistent: boolean;
+  revokedIds: string[];
 }
 
 const DEFAULT_LIBRARY_HINTS: LibraryHint[] = [
@@ -156,6 +157,7 @@ const DEFAULT_LIBRARY_HINTS: LibraryHint[] = [
 interface MentorGlobalStore {
   __mentorLibraryHints?: LibraryHint[];
   __mentorSentHints?: SentHint[];
+  __mentorRevokedHintIds?: Set<string>;
   __mentorTeams?: Map<string, TeamRecord>;
   __deletedTeams?: Set<string>;
   __suspendedTeams?: Set<string>;
@@ -172,6 +174,10 @@ if (!g.__mentorLibraryHints) {
 
 if (!g.__mentorSentHints) {
   g.__mentorSentHints = [];
+}
+
+if (!g.__mentorRevokedHintIds) {
+  g.__mentorRevokedHintIds = new Set<string>();
 }
 
 if (!g.__mentorTeams) {
@@ -690,7 +696,7 @@ export async function getSentHints(teamName?: string): Promise<SentHintsResult> 
     const supabase = createServerSupabase();
     let query = supabase
       .from('mentor_sent_hints')
-      .select('id, team_name, title, content, created_at')
+      .select('id, team_name, title, content, created_at, revoked_at')
       .order('created_at', { ascending: false });
 
     if (teamName) {
@@ -699,26 +705,34 @@ export async function getSentHints(teamName?: string): Promise<SentHintsResult> 
 
     const { data, error } = await query;
     if (!error && data) {
-      const sent = data.map((row) => ({
-        id: String(row.id),
-        teamName: String(row.team_name),
-        hintTitle: String(row.title),
-        hintContent: String(row.content),
-        sentAt: String(row.created_at),
-      }));
+      const revokedIds = data
+        .filter((row) => Boolean(row.revoked_at))
+        .map((row) => String(row.id));
+      const sent = data
+        .filter((row) => !row.revoked_at)
+        .map((row) => ({
+          id: String(row.id),
+          teamName: String(row.team_name),
+          hintTitle: String(row.title),
+          hintContent: String(row.content),
+          sentAt: String(row.created_at),
+        }));
       g.__mentorSentHints = sent;
-      return { sent, persistent: true };
+      g.__mentorRevokedHintIds = new Set(revokedIds);
+      return { sent, persistent: true, revokedIds };
     }
   } catch {
     // DB 테이블 미적용 또는 일시적 통신 오류 시 인메모리 데이터로 폴백
   }
 
   const memorySent = g.__mentorSentHints || [];
-  if (!teamName) return { sent: memorySent, persistent: false };
+  const revokedIds = Array.from(g.__mentorRevokedHintIds || []);
+  if (!teamName) return { sent: memorySent, persistent: false, revokedIds };
   const normalized = teamName.trim().toLowerCase();
   return {
     sent: memorySent.filter((s) => s.teamName.trim().toLowerCase() === normalized),
     persistent: false,
+    revokedIds,
   };
 }
 
@@ -766,10 +780,14 @@ export async function deleteSentHint(sentHintId: string): Promise<boolean> {
   if (g.__mentorSentHints) {
     g.__mentorSentHints = g.__mentorSentHints.filter((s) => s.id !== sentHintId);
   }
+  g.__mentorRevokedHintIds?.add(sentHintId);
 
   try {
     const supabase = createServerSupabase();
-    const { error } = await supabase.from('mentor_sent_hints').delete().eq('id', sentHintId);
+    const { error } = await supabase
+      .from('mentor_sent_hints')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', sentHintId);
     if (!error) return true;
   } catch {
     // DB 테이블 미적용 또는 일시적 통신 오류 시 메모리 삭제 결과 사용

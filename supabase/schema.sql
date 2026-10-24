@@ -71,8 +71,11 @@ create table if not exists mentor_sent_hints (
   team_name text not null,
   title text not null,
   content text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz
 );
+
+alter table mentor_sent_hints add column if not exists revoked_at timestamptz;
 
 create index if not exists idx_mentor_sent_hints_team_name
   on mentor_sent_hints (team_name);

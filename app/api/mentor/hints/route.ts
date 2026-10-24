@@ -32,11 +32,12 @@ export async function GET(req: NextRequest) {
 
   // 학생 클라이언트의 본인 팀 힌트 수신 (인증 불필요)
   if (teamName) {
-    const { sent, persistent } = await getSentHints(teamName);
+    const { sent, persistent, revokedIds } = await getSentHints(teamName);
     return NextResponse.json({
       library: [],
       sent,
       persistent,
+      revokedIds,
       activeTeams: [],
     });
   }
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
   }
 
   const library = getLibraryHints();
-  const { sent, persistent } = await getSentHints();
+  const { sent, persistent, revokedIds } = await getSentHints();
 
   const allTeams = await getTeams();
   const activeTeams = Array.from(
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
     library,
     sent,
     persistent,
+    revokedIds,
     activeTeams,
   });
 }
