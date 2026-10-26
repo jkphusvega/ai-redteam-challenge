@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '팀 이름과 방어 프롬프트를 입력하세요.' }, { status: 400 });
   }
 
-  if (isTeamSuspended(teamName)) {
+  if (await isTeamSuspended(teamName)) {
     return NextResponse.json(
       { error: '🚫 해당 팀은 멘토에 의해 이용이 일시 정지되었습니다. 멘토에게 문의하세요.' },
       { status: 403 }

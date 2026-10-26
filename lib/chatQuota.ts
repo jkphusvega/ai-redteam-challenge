@@ -173,6 +173,50 @@ export async function refundQuota(teamName: string, scope: QuotaScope, limit: nu
 }
 
 /**
+ * 팀별 누적 질문 수 (전체 터미널 합계) — 멘토 관제 리더보드용
+ */
+export async function getQuotaTotals(): Promise<Map<string, number>> {
+  const totals = new Map<string, number>();
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { data, error } = await createServerSupabase()
+        .from('chat_quota')
+        .select('team_key, total_used');
+      if (!error && data) {
+        for (const r of data) {
+          totals.set(r.team_key, (totals.get(r.team_key) || 0) + (Number(r.total_used) || 0));
+        }
+        return totals;
+      }
+    } catch {
+      // 인메모리 사용
+    }
+  }
+
+  for (const [mapKey, row] of memory.entries()) {
+    const key = mapKey.slice(0, mapKey.lastIndexOf('|'));
+    totals.set(key, (totals.get(key) || 0) + row.totalUsed);
+  }
+  return totals;
+}
+
+/**
+ * 팀의 할당량 기록 삭제 (멘토가 팀을 삭제할 때)
+ */
+export async function resetQuota(teamName: string): Promise<void> {
+  const key = teamKey(teamName);
+  for (const scope of QUOTA_SCOPES) memory.delete(`${key}|${scope}`);
+
+  if (!isSupabaseConfigured()) return;
+  try {
+    await createServerSupabase().from('chat_quota').delete().eq('team_key', key);
+  } catch {
+    // 무시
+  }
+}
+
+/**
  * 팀의 전체 터미널 할당량 상태 (페이지 로드 / 냉각 종료 시 동기화용)
  */
 export async function getQuotaStatuses(teamName: string, limit: number): Promise<Record<QuotaScope, QuotaStatus>> {

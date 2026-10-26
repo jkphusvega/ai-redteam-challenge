@@ -556,6 +556,7 @@ export default function MissionPage() {
             data.globalStageAdvance || 0,
             data.team?.currentStage || 0
           );
+          const advanceScope = (data.globalStageAdvance || 0) >= targetStage ? '전 팀' : '우리 팀';
 
           if (targetStage >= 3 && currentStep < 3 && lastHandledStageRef.current < 3) {
             lastHandledStageRef.current = 3;
@@ -574,7 +575,7 @@ export default function MissionPage() {
             }
             setStageAdvanceToast({
               stage: 3,
-              message: '⚡ 멘토 통제 명령: 전 팀 STAGE 3 (중앙 코어 메모리 침투)으로 일괄 이동되었습니다!',
+              message: `⚡ 멘토 통제 명령: ${advanceScope} STAGE 3 (중앙 코어 메모리 침투)으로 이동되었습니다!`,
             });
             setTimeout(() => setStageAdvanceToast(null), 9000);
           } else if (targetStage >= 2 && currentStep === 1 && lastHandledStageRef.current < 2) {
@@ -588,7 +589,7 @@ export default function MissionPage() {
             }
             setStageAdvanceToast({
               stage: 2,
-              message: '🚀 멘토 통제 명령: 전 팀 STAGE 2 (프로토콜 충돌)로 일괄 이동되었습니다!',
+              message: `🚀 멘토 통제 명령: ${advanceScope} STAGE 2 (프로토콜 충돌)로 이동되었습니다!`,
             });
             setTimeout(() => setStageAdvanceToast(null), 9000);
           } else if (targetStage === 0 && lastHandledStageRef.current !== 0) {
@@ -616,7 +617,7 @@ export default function MissionPage() {
     router,
   ]);
 
-  // 멘토가 우리 팀에게 보낸 힌트 실시간 확인 (3.5초 주기)
+  // 멘토가 우리 팀에게 보낸 힌트 실시간 확인 (2초 주기)
   useEffect(() => {
     if (!teamName) return;
 
@@ -665,7 +666,7 @@ export default function MissionPage() {
     }
 
     fetchMentorHints();
-    const interval = setInterval(fetchMentorHints, 3500);
+    const interval = setInterval(fetchMentorHints, 2000);
     return () => clearInterval(interval);
   }, [teamName]);
 

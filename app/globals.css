@@ -879,3 +879,38 @@ body {
   vertical-align: middle;
   animation: cursorBlink 0.8s infinite;
 }
+
+/* ============================================================
+   멘토 관제: 참가팀 목록 + 우측 실시간 리더보드
+   ============================================================ */
+.mentor-teams-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+.mentor-leaderboard {
+  position: sticky;
+  top: 140px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 1279px) {
+  .mentor-teams-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mentor-leaderboard {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    order: -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}

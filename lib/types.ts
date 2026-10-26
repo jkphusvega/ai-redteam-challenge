@@ -166,7 +166,8 @@ export interface TeamRecord {
   status: 'active' | 'suspended';
   createdAt: string;
   lastActive: string;
-  currentStage: number; // 1 | 2
+  currentStage: number; // 1 | 2 | 3
+  forcedStage?: number; // 멘토가 지시한 이동 목표 (학생이 도착을 보고하면 해제)
   stage1SecretCode: string; // 팀별 고유 랜덤 암호
   mission1Cleared: boolean;
   mission2Cleared: boolean;

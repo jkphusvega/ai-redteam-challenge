@@ -17,7 +17,6 @@ import {
   getSentHints,
   sendHintToTeam,
   deleteSentHint,
-  getTeams,
 } from '@/lib/mentorStore';
 import { isMentor } from '@/lib/mentorAuth';
 
@@ -50,13 +49,8 @@ export async function GET(req: NextRequest) {
   const library = getLibraryHints();
   const { sent, persistent, revokedIds } = await getSentHints();
 
-  const allTeams = await getTeams();
-  const activeTeams = Array.from(
-    new Set([
-      ...allTeams.map((t) => t.teamName),
-      ...sent.map((s) => s.teamName),
-    ])
-  );
+  // 참가팀 목록은 멘토 화면이 /api/mentor/teams에서 받아 합칩니다.
+  const activeTeams = Array.from(new Set(sent.map((s) => s.teamName)));
 
   return NextResponse.json({
     library,
@@ -123,12 +117,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '대상 팀 이름과 힌트 정보가 필요합니다.' }, { status: 400 });
     }
 
-    const sent = await sendHintToTeam(targetTeam, {
+    const { sent, persistent } = await sendHintToTeam(targetTeam, {
       title: body.hint.title,
       content: body.hint.content,
     });
 
-    return NextResponse.json({ success: true, sentHint: sent });
+    return NextResponse.json({ success: true, sentHint: sent, persistent });
   }
 
   // 4. 발송된 힌트 삭제

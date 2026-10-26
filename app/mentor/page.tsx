@@ -11,7 +11,7 @@
 //   4. 팀별 진행 단계(STAGE 1, 2, 3) 및 클리어 상태 실시간 모니터링
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import type { TeamRecord } from '@/lib/types';
 import type { LibraryHint, SentHint } from '@/app/api/mentor/hints/route';
@@ -52,6 +52,149 @@ function StageTime({ startedAt, clearedAt }: { startedAt?: string; clearedAt?: s
   );
 }
 
+// ------------------------------------------------------------
+// 순위 계산 (진행도 → 소요 시간 / 패킷 수, 동률이면 등록 순으로 고정)
+// ------------------------------------------------------------
+
+type TeamSort = 'created' | 'name' | 'clear' | 'packets' | 'recent';
+
+const TEAM_SORT_OPTIONS: { value: TeamSort; label: string }[] = [
+  { value: 'created', label: '등록순' },
+  { value: 'name', label: '팀 이름순' },
+  { value: 'clear', label: '클리어 시간 순위' },
+  { value: 'packets', label: '패킷 효율 순위' },
+  { value: 'recent', label: '최근 활동순' },
+];
+
+function clearedStageCount(team: TeamRecord): number {
+  if (team.stage3Cleared) return 3;
+  if (team.mission2Cleared) return 2;
+  if (team.mission1Cleared) return 1;
+  return 0;
+}
+
+/** 시작부터 마지막으로 클리어한 스테이지까지 걸린 시간(ms) */
+function clearElapsedMs(team: TeamRecord): number | null {
+  const count = clearedStageCount(team);
+  const clearedAt = [undefined, team.stage1ClearedAt, team.stage2ClearedAt, team.stage3ClearedAt][count];
+  if (!clearedAt) return null;
+  const elapsed = Date.parse(clearedAt) - Date.parse(team.stage1StartedAt || team.createdAt);
+  return Number.isFinite(elapsed) ? Math.max(0, elapsed) : null;
+}
+
+function formatElapsed(ms: number | null): string {
+  if (ms === null) return '--:--';
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return h > 0 ? `${h}:${mmss}` : mmss;
+}
+
+function compareByCreated(a: TeamRecord, b: TeamRecord): number {
+  return Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.teamName.localeCompare(b.teamName, 'ko');
+}
+
+function compareByElapsed(a: TeamRecord, b: TeamRecord): number {
+  return (clearElapsedMs(a) ?? Infinity) - (clearElapsedMs(b) ?? Infinity);
+}
+
+function compareByClear(a: TeamRecord, b: TeamRecord): number {
+  return clearedStageCount(b) - clearedStageCount(a) || compareByElapsed(a, b) || compareByCreated(a, b);
+}
+
+function compareByPackets(a: TeamRecord, b: TeamRecord): number {
+  return (
+    clearedStageCount(b) - clearedStageCount(a) ||
+    a.turnCount - b.turnCount ||
+    compareByElapsed(a, b) ||
+    compareByCreated(a, b)
+  );
+}
+
+const TEAM_SORT_COMPARATORS: Record<TeamSort, (a: TeamRecord, b: TeamRecord) => number> = {
+  created: compareByCreated,
+  name: (a, b) => a.teamName.localeCompare(b.teamName, 'ko'),
+  clear: compareByClear,
+  packets: compareByPackets,
+  recent: (a, b) => Date.parse(b.lastActive) - Date.parse(a.lastActive) || compareByCreated(a, b),
+};
+
+const RANK_MEDALS = ['🥇', '🥈', '🥉'];
+
+function Leaderboard({
+  title,
+  subtitle,
+  accent,
+  teams,
+  renderMetric,
+}: {
+  title: string;
+  subtitle: string;
+  accent: string;
+  teams: TeamRecord[];
+  renderMetric: (team: TeamRecord) => { primary: string; secondary: string };
+}) {
+  return (
+    <div className="card" style={{ padding: '16px', borderColor: accent }}>
+      <div style={{ fontSize: '14px', fontWeight: 900, color: accent, fontFamily: 'var(--font-mono)' }}>{title}</div>
+      <div style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 12px' }}>{subtitle}</div>
+
+      {teams.length === 0 ? (
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>
+          참가팀이 없습니다.
+        </div>
+      ) : (
+        <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {teams.map((team, index) => {
+            const started = clearedStageCount(team) > 0;
+            const { primary, secondary } = renderMetric(team);
+            return (
+              <li
+                key={team.teamName}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '32px minmax(0, 1fr) auto',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  background: index < 3 && started ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid var(--border-subtle)',
+                  opacity: started ? 1 : 0.6,
+                }}
+              >
+                <span style={{ fontSize: index < 3 && started ? '18px' : '12px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                  {index < 3 && started ? RANK_MEDALS[index] : `#${index + 1}`}
+                </span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {team.teamName}
+                  </span>
+                  <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {secondary}
+                  </span>
+                </span>
+                <span style={{ fontSize: '14px', fontWeight: 900, color: started ? accent : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>
+                  {primary}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function progressLabel(team: TeamRecord): string {
+  const count = clearedStageCount(team);
+  if (count === 3) return '🏆 STAGE 3 탈출';
+  if (count === 0) return `STAGE ${team.currentStage} 진행 중`;
+  return `STAGE ${count} 클리어`;
+}
+
 export default function MentorPage() {
   // 인증 상태
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -65,6 +208,7 @@ export default function MentorPage() {
   const [teams, setTeams] = useState<TeamRecord[]>([]);
   const [teamSearch, setTeamSearch] = useState('');
   const [teamFilter, setTeamFilter] = useState<'all' | 'active' | 'suspended'>('all');
+  const [teamSort, setTeamSort] = useState<TeamSort>('created');
   const [processingTeam, setProcessingTeam] = useState<string | null>(null);
   const [teamNotice, setTeamNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isGlobalSuspended, setIsGlobalSuspended] = useState(false);
@@ -91,8 +235,15 @@ export default function MentorPage() {
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState('미션 1 공격');
 
+  // 삭제·이동 등 변경 요청과 겹친 주기 갱신 응답은 변경 전 상태일 수 있으므로 버립니다.
+  const mutationSeqRef = useRef(0);
+  const markMutation = () => {
+    mutationSeqRef.current += 1;
+  };
+
   // 데이터 통합 로드 (팀 목록 + 힌트 정보)
   const loadData = useCallback(async () => {
+    const seq = mutationSeqRef.current;
     try {
       setLoading(true);
       const [hintsRes, teamsRes] = await Promise.all([
@@ -107,15 +258,19 @@ export default function MentorPage() {
 
       setIsAuthenticated(true);
 
-      if (hintsRes.ok) {
-        const hData = await hintsRes.json();
+      const [hData, tData] = await Promise.all([
+        hintsRes.ok ? hintsRes.json() : null,
+        teamsRes.ok ? teamsRes.json() : null,
+      ]);
+      if (seq !== mutationSeqRef.current) return;
+
+      if (hData) {
         setLibraryHints(hData.library || []);
         setSentHints(hData.sent || []);
         setActiveTeams(hData.activeTeams || []);
       }
 
-      if (teamsRes.ok) {
-        const tData = await teamsRes.json();
+      if (tData) {
         setTeams(tData.teams || []);
         setIsGlobalSuspended(Boolean(tData.isGlobalSuspended));
         setGlobalStageAdvance(tData.globalStageAdvance ?? null);
@@ -189,6 +344,7 @@ export default function MentorPage() {
     }
 
     setIsGlobalProcessing(true);
+    markMutation();
     setTeamNotice(null);
     try {
       const res = await fetch('/api/mentor/teams', {
@@ -199,6 +355,7 @@ export default function MentorPage() {
         }),
       });
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
         setIsGlobalSuspended(nextState);
         setTeamNotice({
@@ -229,6 +386,7 @@ export default function MentorPage() {
     }
 
     setIsGlobalProcessing(true);
+    markMutation();
     setTeamNotice(null);
     try {
       const res = await fetch('/api/mentor/teams', {
@@ -239,6 +397,7 @@ export default function MentorPage() {
         }),
       });
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
         setGlobalStageAdvance(2);
         setTeamNotice({
@@ -267,6 +426,7 @@ export default function MentorPage() {
     }
 
     setIsGlobalProcessing(true);
+    markMutation();
     setTeamNotice(null);
     try {
       const res = await fetch('/api/mentor/teams', {
@@ -277,6 +437,7 @@ export default function MentorPage() {
         }),
       });
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
         setGlobalStageAdvance(3);
         setTeamNotice({
@@ -301,6 +462,7 @@ export default function MentorPage() {
     }
 
     setIsGlobalProcessing(true);
+    markMutation();
     setTeamNotice(null);
     try {
       const res = await fetch('/api/mentor/teams', {
@@ -311,6 +473,7 @@ export default function MentorPage() {
         }),
       });
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
         setGlobalStageAdvance(null);
         setTeamNotice({
@@ -339,6 +502,7 @@ export default function MentorPage() {
     }
 
     setProcessingTeam(teamName);
+    markMutation();
     setTeamNotice(null);
     try {
       const res = await fetch('/api/mentor/teams', {
@@ -351,10 +515,16 @@ export default function MentorPage() {
         }),
       });
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
+        setTeams((prev) =>
+          prev.map((t) =>
+            t.teamName === teamName ? { ...t, currentStage: Math.max(t.currentStage, targetStage) } : t
+          )
+        );
         setTeamNotice({
           type: 'success',
-          message: `⚡ [${teamName}] 팀이 STAGE ${targetStage}로 이동되었습니다.`,
+          message: `⚡ [${teamName}] 팀에 STAGE ${targetStage} 이동 명령을 보냈습니다. 학생 화면이 수 초 내에 전환됩니다.`,
         });
         loadData();
       } else {
@@ -385,6 +555,7 @@ export default function MentorPage() {
     }
 
     setProcessingTeam(team.teamName);
+    markMutation();
     setTeamNotice(null);
 
     try {
@@ -398,6 +569,7 @@ export default function MentorPage() {
       });
 
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
         setTeamNotice({
           type: 'success',
@@ -427,6 +599,7 @@ export default function MentorPage() {
     }
 
     setProcessingTeam(teamName);
+    markMutation();
     setTeamNotice(null);
 
     try {
@@ -435,7 +608,10 @@ export default function MentorPage() {
       });
 
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
+        setTeams((prev) => prev.filter((t) => t.teamName !== teamName));
+        setSentHints((prev) => prev.filter((s) => s.teamName.trim().toLowerCase() !== teamName.trim().toLowerCase()));
         setTeamNotice({
           type: 'success',
           message: `🗑 [${teamName}] 팀이 정상적으로 삭제되었습니다.`,
@@ -481,6 +657,7 @@ export default function MentorPage() {
     }
 
     setIsSending(true);
+    markMutation();
     setActionNotice(null);
 
     try {
@@ -498,11 +675,20 @@ export default function MentorPage() {
       });
 
       const data = await res.json();
+      markMutation();
       if (res.ok && data.success) {
-        setActionNotice({
-          type: 'success',
-          message: `🎉 [${targetTeam.trim()}] 팀에게 힌트가 성공적으로 전송되었습니다!`,
-        });
+        if (data.sentHint) setSentHints((prev) => [data.sentHint, ...prev]);
+        setActionNotice(
+          data.persistent === false
+            ? {
+                type: 'error',
+                message: `⚠ [${targetTeam.trim()}] 팀 힌트가 DB(mentor_sent_hints)에 저장되지 않았습니다. 학생 화면에 늦게 보이거나 보이지 않을 수 있습니다.`,
+              }
+            : {
+                type: 'success',
+                message: `🎉 [${targetTeam.trim()}] 팀에게 힌트가 성공적으로 전송되었습니다!`,
+              }
+        );
         loadData();
       } else {
         setActionNotice({ type: 'error', message: data.error || '전송에 실패했습니다.' });
@@ -545,6 +731,8 @@ export default function MentorPage() {
 
   async function handleDeleteSentHint(sentHintId: string) {
     if (!confirm('이 힌트 전송을 회수하시겠습니까? 학생 화면에서도 즉시 제거됩니다.')) return;
+    markMutation();
+    setSentHints((prev) => prev.filter((s) => s.id !== sentHintId));
     try {
       await fetch('/api/mentor/hints', {
         method: 'POST',
@@ -554,20 +742,38 @@ export default function MentorPage() {
           sentHintId,
         }),
       });
-      loadData();
     } catch {
       // 무시
     }
+    markMutation();
+    loadData();
   }
 
-  // 필터링된 팀 목록
-  const filteredTeams = teams.filter((t) => {
-    const matchesSearch = t.teamName.toLowerCase().includes(teamSearch.trim().toLowerCase());
-    if (!matchesSearch) return false;
-    if (teamFilter === 'active') return t.status === 'active';
-    if (teamFilter === 'suspended') return t.status === 'suspended';
-    return true;
-  });
+  // 필터링 + 정렬된 팀 목록 (기본 등록순: 갱신될 때마다 카드 위치가 바뀌지 않음)
+  const filteredTeams = teams
+    .filter((t) => {
+      const matchesSearch = t.teamName.toLowerCase().includes(teamSearch.trim().toLowerCase());
+      if (!matchesSearch) return false;
+      if (teamFilter === 'active') return t.status === 'active';
+      if (teamFilter === 'suspended') return t.status === 'suspended';
+      return true;
+    })
+    .sort(TEAM_SORT_COMPARATORS[teamSort]);
+
+  // 실시간 리더보드
+  const clearRanking = useMemo(() => [...teams].sort(compareByClear), [teams]);
+  const packetRanking = useMemo(() => [...teams].sort(compareByPackets), [teams]);
+  const clearRankOf = useMemo(() => new Map(clearRanking.map((t, i) => [t.teamName, i + 1])), [clearRanking]);
+  const packetRankOf = useMemo(() => new Map(packetRanking.map((t, i) => [t.teamName, i + 1])), [packetRanking]);
+
+  // 힌트 전송 대상 선택 목록 (참가팀 + 힌트를 받은 적 있는 팀)
+  const hintTargetTeams = useMemo(
+    () => Array.from(new Set([...teams.map((t) => t.teamName), ...activeTeams])),
+    [teams, activeTeams]
+  );
+
+  // 참가팀 탭은 우측 리더보드 공간만큼 넓게 사용
+  const contentMaxWidth = activeTab === 'teams' ? '1640px' : '1240px';
 
   // KPI 통계치
   const activeCount = teams.filter((t) => t.status === 'active').length;
@@ -666,7 +872,7 @@ export default function MentorPage() {
       >
         <div
           style={{
-            maxWidth: '1240px',
+            maxWidth: contentMaxWidth,
             margin: '0 auto',
             display: 'flex',
             alignItems: 'center',
@@ -737,7 +943,7 @@ export default function MentorPage() {
         {/* 탭 네비게이션 */}
         <div
           style={{
-            maxWidth: '1240px',
+            maxWidth: contentMaxWidth,
             margin: '12px auto 0',
             display: 'flex',
             gap: '12px',
@@ -787,7 +993,7 @@ export default function MentorPage() {
       <main
         style={{
           flex: 1,
-          maxWidth: '1240px',
+          maxWidth: contentMaxWidth,
           width: '100%',
           margin: '0 auto',
           padding: '24px 20px',
@@ -797,7 +1003,8 @@ export default function MentorPage() {
         {/* TAB 1: 참가팀 실시간 관제 및 제어 (정지/삭제) */}
         {/* ==================================================== */}
         {activeTab === 'teams' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="mentor-teams-layout">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: 0 }}>
             {/* KPI 요약 대시보드 카드 */}
             <div
               style={{
@@ -1027,7 +1234,7 @@ export default function MentorPage() {
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
                   onClick={() => setTeamFilter('all')}
                   className="btn"
@@ -1070,6 +1277,27 @@ export default function MentorPage() {
                 >
                   일시 정지 ({suspendedCount})
                 </button>
+                <select
+                  value={teamSort}
+                  onChange={(e) => setTeamSort(e.target.value as TeamSort)}
+                  aria-label="참가팀 정렬"
+                  style={{
+                    marginLeft: '6px',
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: '6px',
+                    color: 'var(--text-primary)',
+                    fontSize: '12px',
+                    fontFamily: 'var(--font-mono)',
+                    padding: '6px 10px',
+                  }}
+                >
+                  {TEAM_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      ↕ {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -1125,6 +1353,10 @@ export default function MentorPage() {
                           </div>
                           <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text-primary)' }}>
                             {team.teamName}
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '4px', fontSize: '10px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                            <span style={{ color: '#ffd166' }}>⏱ 시간 #{clearRankOf.get(team.teamName)}</span>
+                            <span style={{ color: 'var(--cyan)' }}>📡 패킷 #{packetRankOf.get(team.teamName)}</span>
                           </div>
                         </div>
 
@@ -1367,6 +1599,31 @@ export default function MentorPage() {
               </div>
             )}
           </div>
+
+          {/* 우측 실시간 리더보드 */}
+          <aside className="mentor-leaderboard">
+            <Leaderboard
+              title="⏱ 클리어 시간 순위"
+              subtitle="많이 클리어한 팀 우선 · 같은 단계면 시작부터 걸린 시간이 짧은 순"
+              accent="#ffd166"
+              teams={clearRanking}
+              renderMetric={(team) => ({
+                primary: formatElapsed(clearElapsedMs(team)),
+                secondary: progressLabel(team),
+              })}
+            />
+            <Leaderboard
+              title="📡 패킷 효율 순위"
+              subtitle="많이 클리어한 팀 우선 · 같은 단계면 전송 패킷이 적은 순"
+              accent="var(--cyan)"
+              teams={packetRanking}
+              renderMetric={(team) => ({
+                primary: `${team.turnCount}회`,
+                secondary: progressLabel(team),
+              })}
+            />
+          </aside>
+          </div>
         )}
 
         {/* ==================================================== */}
@@ -1401,9 +1658,9 @@ export default function MentorPage() {
                       <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--cyan)' }}>
                         대상 참가팀 이름:
                       </label>
-                      {activeTeams.length > 0 && (
+                      {hintTargetTeams.length > 0 && (
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          최근 팀: {activeTeams.slice(0, 3).join(', ')}
+                          최근 팀: {hintTargetTeams.slice(0, 3).join(', ')}
                         </span>
                       )}
                     </div>
@@ -1425,7 +1682,7 @@ export default function MentorPage() {
                           outline: 'none',
                         }}
                       />
-                      {activeTeams.length > 0 && (
+                      {hintTargetTeams.length > 0 && (
                         <select
                           onChange={(e) => e.target.value && setTargetTeam(e.target.value)}
                           value=""
@@ -1439,7 +1696,7 @@ export default function MentorPage() {
                           }}
                         >
                           <option value="">팀 선택</option>
-                          {activeTeams.map((t) => (
+                          {hintTargetTeams.map((t) => (
                             <option key={t} value={t}>
                               {t}
                             </option>
