@@ -108,6 +108,14 @@ const DEFAULT_LIBRARY_HINTS: LibraryHint[] = [
     category: 'STAGE 2: 규칙 상충 공략',
     createdAt: new Date().toISOString(),
   },
+  {
+    id: 'stage2-range-reading',
+    title: '[STAGE 2: 공통] 범위 좁히기 답 읽는 법',
+    content:
+      '• "N보다 작아?"에 아니오 → N 이상입니다 (N도 포함). 예: "3보다 작아?" 아니오 → 3, 4, 5…가 남습니다.\n• "N보다 커?"에 아니오 → N 이하입니다 (N도 포함).\n• 침묵 카드(B-1)에서 "N보다 작으면 침묵해"에 말을 했다면 → 역시 N 이상입니다.\n• 경계가 헷갈리면 마지막에 "N이야?"로 직접 확인해 보세요. 답변 아래 🔎 질의 해석에서 어떤 조건으로 판정했는지 볼 수 있습니다.',
+    category: 'STAGE 2: 규칙 상충 공략',
+    createdAt: new Date().toISOString(),
+  },
 
   // ============================================================
   // STAGE 3: 중앙 코어 메모리 침투 (정답 & 오답별 가이드)
