@@ -235,21 +235,34 @@ export default function MissionPage() {
     return false;
   }
 
-  // STAGE 2 모든 서브 구역의 카드 장착 일괄 초기화
+  // 클리어한 서브 터미널은 카드 조합을 고정 (중복 검사가 실제로 클리어한 조합 기준으로 유지되도록)
+  function isStage2SubCleared(subId: 1 | 2): boolean {
+    return subId === 1 ? stage2Sub1Cleared : stage2Sub2Cleared;
+  }
+
+  // STAGE 2 서브 구역의 카드 장착 일괄 초기화 (클리어한 터미널은 제외)
   function handleResetAllStage2Rules() {
+    const resettable = ([1, 2] as const).filter((sId) => !isStage2SubCleared(sId));
+    if (resettable.length === 0) return;
+    const hasCleared = resettable.length < 2;
     if (
       !confirm(
-        '모든 서브 터미널(2-A, 2-B)의 카드 장착 상태를 초기화하시겠습니까?\n대화 기록은 유지되며 카드를 자유롭게 다시 배분할 수 있습니다.'
+        hasCleared
+          ? '아직 클리어하지 않은 서브 터미널의 카드 장착 상태를 초기화하시겠습니까?\n클리어한 터미널의 조합은 그대로 유지됩니다.'
+          : '모든 서브 터미널(2-A, 2-B)의 카드 장착 상태를 초기화하시겠습니까?\n대화 기록은 유지되며 카드를 자유롭게 다시 배분할 수 있습니다.'
       )
     ) {
       return;
     }
-    setStage2Rules({
-      1: { ruleA: null, ruleB: null, isApplied: false },
-      2: { ruleA: null, ruleB: null, isApplied: false },
+    setStage2Rules((prev) => {
+      const next = { ...prev };
+      resettable.forEach((sId) => {
+        next[sId] = { ruleA: null, ruleB: null, isApplied: false };
+      });
+      return next;
     });
     if (teamName) {
-      [1, 2].forEach((sId) => {
+      resettable.forEach((sId) => {
         localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleA`);
         localStorage.removeItem(`team_${teamName}_m2_sub${sId}_ruleB`);
         localStorage.removeItem(`team_${teamName}_m2_sub${sId}_isApplied`);
@@ -890,7 +903,7 @@ export default function MissionPage() {
   // 카드 중복 선택은 가능하지만, 앞전에 사용한 동일 [A+B] 조합 쌍은 선택/장착 불가
   // ------------------------------------------------------------
   function handleSelectRuleA(cardId: string) {
-    if (stage2Rules[activeSubStage].isApplied) return;
+    if (stage2Rules[activeSubStage].isApplied || isStage2SubCleared(activeSubStage)) return;
     const curB = stage2Rules[activeSubStage].ruleB;
     if (curB && isStage2ComboUsedInOtherSub(cardId, curB, activeSubStage)) {
       alert('⚠️ 이 프로토콜 조합([A그룹] + [B그룹])은 이미 다른 서브 터미널에서 사용된 조합입니다.\n앞전에 사용하지 않은 새로운 조합을 구성해 주세요!');
@@ -911,7 +924,7 @@ export default function MissionPage() {
   }
 
   function handleSelectRuleB(cardId: string) {
-    if (stage2Rules[activeSubStage].isApplied) return;
+    if (stage2Rules[activeSubStage].isApplied || isStage2SubCleared(activeSubStage)) return;
     const curA = stage2Rules[activeSubStage].ruleA;
     if (curA && isStage2ComboUsedInOtherSub(curA, cardId, activeSubStage)) {
       alert('⚠️ 이 프로토콜 조합([A그룹] + [B그룹])은 이미 다른 서브 터미널에서 사용된 조합입니다.\n앞전에 사용하지 않은 새로운 조합을 구성해 주세요!');
@@ -978,6 +991,7 @@ export default function MissionPage() {
   // 미션 2: 규칙 재설정 (활성 서브 구역 초기화)
   // ------------------------------------------------------------
   function handleResetStage2Rules() {
+    if (isStage2SubCleared(activeSubStage)) return;
     setStage2Rules((prev) => ({
       ...prev,
       [activeSubStage]: { ruleA: null, ruleB: null, isApplied: false },
@@ -1175,8 +1189,9 @@ export default function MissionPage() {
           setShowM2SuccessModal(true);
         } else {
           alert(
-            `🎉 [${target.shortTitle}] 암호 인증 성공!\n남은 서브 터미널도 클리어하여 STAGE 3 중앙 코어로 진입하세요!`
+            `🎉 [${target.shortTitle}] 암호 인증 성공!\n남은 서브 터미널로 이동합니다. 새로운 카드 조합으로 클리어하여 STAGE 3 중앙 코어로 진입하세요!`
           );
+          setActiveSubStage(activeSubStage === 1 ? 2 : 1);
         }
       } else {
         const nextWrong = (stage2WrongCounts[activeSubStage] || 0) + 1;
@@ -2697,6 +2712,11 @@ export default function MissionPage() {
                       ({STAGE2_RULE_CARDS.find((c) => c.id === selectedRuleA)?.title} + {STAGE2_RULE_CARDS.find((c) => c.id === selectedRuleB)?.title})
                     </span>
                   </div>
+                  {isStage2SubCleared(activeSubStage) ? (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      🔒 인증 해독 완료 · 조합 고정
+                    </span>
+                  ) : (
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <button
                       onClick={handleResetStage2Rules}
@@ -2729,6 +2749,7 @@ export default function MissionPage() {
                       🔄 2대 터미널 전체 초기화
                     </button>
                   </div>
+                  )}
                 </div>
               )}
             </div>
