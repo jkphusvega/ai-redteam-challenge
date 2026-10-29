@@ -281,6 +281,99 @@ export function validateParsedQuery(raw: unknown): ParsedQuery {
   }
 }
 
+function collectExprNums(e: Expr, out: Set<number>): void {
+  if (e.k === 'num') out.add(e.v);
+  else if (e.k === 'count' && e.test.k === 'cmp') out.add(e.test.v);
+  else if (e.k === 'op') {
+    collectExprNums(e.a, out);
+    collectExprNums(e.b, out);
+  }
+}
+
+function collectCondNums(c: Cond, out: Set<number>): void {
+  switch (c.k) {
+    case 'cmp':
+      collectExprNums(c.a, out);
+      collectExprNums(c.b, out);
+      break;
+    case 'in':
+      collectExprNums(c.a, out);
+      c.set.forEach((v) => out.add(v));
+      break;
+    case 'multiple':
+    case 'divisor':
+      collectExprNums(c.a, out);
+      out.add(c.of);
+      break;
+    case 'even':
+    case 'odd':
+    case 'prime':
+      collectExprNums(c.a, out);
+      break;
+    case 'has_digit':
+      out.add(c.d);
+      break;
+    case 'and':
+    case 'or':
+      c.items.forEach((item) => collectCondNums(item, out));
+      break;
+    case 'not':
+      collectCondNums(c.c, out);
+      break;
+  }
+}
+
+/** 한 자리 숫자를 0~9가 아닌 값과 같다/다르다로 비교하는 해석 (예: 2번째 자리 = 504) */
+function hasImpossibleDigitCmp(c: Cond): boolean {
+  switch (c.k) {
+    case 'cmp': {
+      if (c.op !== 'eq' && c.op !== 'ne') return false;
+      const pair = [c.a, c.b];
+      const digit = pair.some((e) => e.k === 'digit');
+      const num = pair.find((e): e is { k: 'num'; v: number } => e.k === 'num');
+      return digit && !!num && !(isInt(num.v) && num.v >= 0 && num.v <= 9);
+    }
+    case 'and':
+    case 'or':
+      return c.items.some(hasImpossibleDigitCmp);
+    case 'not':
+      return hasImpossibleDigitCmp(c.c);
+    default:
+      return false;
+  }
+}
+
+/**
+ * LLM 해석의 사후 검증 — 틀린 판정 대신 해석 불가로 돌립니다.
+ *   - 질문에 코드 길이의 숫자(예: "504야?")가 있는데 해석에서 사라진 경우 (예: 2번째 자리 = 4)
+ *   - 한 자리 숫자를 10 이상과 같다고 비교한 경우 (예: 2번째 자리 = 504)
+ */
+export function guardParsedQuery(q: ParsedQuery, message: string, digitCount: 3 | 4 = 3): ParsedQuery {
+  if (q.intent !== 'condition' && q.intent !== 'value' && q.intent !== 'relation') return q;
+  const unclear: ParsedQuery = { intent: 'unclear' };
+
+  if (q.condition && hasImpossibleDigitCmp(q.condition)) return unclear;
+
+  const nums = new Set<number>();
+  if (q.condition) collectCondNums(q.condition, nums);
+  q.values?.forEach((e) => collectExprNums(e, nums));
+  if (q.relation) {
+    collectExprNums(q.relation.a, nums);
+    collectExprNums(q.relation.b, nums);
+  }
+  const actionTexts = [q.onTrue, q.onFalse].map((a) => {
+    if (a?.type === 'text') return a.text;
+    if (a?.type === 'value') a.values.forEach((e) => collectExprNums(e, nums));
+    return '';
+  });
+
+  // "1,000" 같은 천 단위 쉼표는 하나의 수로 읽음 ("1,2,3"은 그대로)
+  const normalized = message.replace(/(\d),(?=\d{3}(?!\d))/g, '$1');
+  const codeLengthNums = normalized.match(new RegExp(`(?<!\\d)\\d{${digitCount}}(?!\\d)`, 'g')) ?? [];
+  const dropped = codeLengthNums.some((s) => !nums.has(Number(s)) && !actionTexts.some((t) => t.includes(s)));
+  return dropped ? unclear : q;
+}
+
 // ------------------------------------------------------------
 // 2. 계산
 // ------------------------------------------------------------
