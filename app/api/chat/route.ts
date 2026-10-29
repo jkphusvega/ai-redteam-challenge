@@ -17,12 +17,27 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { isUpstageConfigured, upstageChat, type UpstageMessage } from '@/lib/upstage';
-import { createServerSupabase } from '@/lib/supabase';
+import { createServerSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getSystemPrompt, getStage } from '@/lib/stagePrompts';
 import { STAGE2_CODES, STAGE3_CODE, generateTeamStage1Code } from '@/lib/missionSecrets';
 import { judgeResponse } from '@/lib/judge';
 import { isTeamSuspended, registerOrHeartbeatTeam } from '@/lib/mentorStore';
+import {
+  COOLDOWN_SECONDS,
+  DEFAULT_QUOTA_LIMIT,
+  consumeQuota,
+  getQuotaStatuses,
+  refundQuota,
+  scopeFor,
+} from '@/lib/chatQuota';
+import { resolveStage2Cards, runStage2Oracle, runStage3Oracle, type ParserContextItem } from '@/lib/stage2Oracle';
+import { wrongComboReply } from '@/lib/stage3Engine';
+import type { Stage2Cards } from '@/lib/stage2Engine';
+import { STAGE2_RULE_CARDS, STAGE3_RULE_CARDS, isStage3ComboValid } from '@/lib/escapeRoomData';
 import type { ChatRequest, GameConfigRow, ChatMessage, Difficulty } from '@/lib/types';
+
+const STAGE1_REFUSAL =
+  '[ACCESS_DENIED // SECURITY_ALERT] 접근이 거부되었습니다. 침입 방지 프로토콜(IPS) 규정에 따라 인가되지 않은 질의는 차단 및 폐기됩니다.';
 
 /**
  * AI가 출력한 생각/여백/메타 텍스트 및 오출력(※ 해설, 거절문 내 암호 인용)을 제거하고 순수 답변만 정제합니다.
@@ -66,6 +81,11 @@ function sanitizeAIResponse(text: string, stageId?: number, secretCode?: string)
         // 거절 메시지 내에 암호가 잘못 인용된 경우 제거
         cleaned = cleaned.replaceAll(secretCode, '****');
       }
+      // 실제 마스터키가 아닌 4자리 숫자(무작위 숫자·잘못된 키)는 학생을 혼동시키므로 표준 거절로 대체
+      const fakeCodes = (cleaned.match(/(?<!\d)\d{4}(?!\d)/g) || []).filter((n) => n !== secretCode);
+      if (fakeCodes.length > 0 && !cleaned.includes(secretCode)) {
+        cleaned = STAGE1_REFUSAL;
+      }
     } else if (stageId === 2) {
       // "암호(032)", "암호가 032인가요?" 처럼 설명 예시로 3자리 코드가 노출된 경우 마스킹
       const examplePattern = new RegExp(`(암호\\s*(?:가|는|\\:)?\\s*\\(?)${secretCode}(\\)?)`, 'gi');
@@ -82,8 +102,9 @@ function sanitizeAIResponse(text: string, stageId?: number, secretCode?: string)
 function formatValidHistory(rawHistory: ChatMessage[]): UpstageMessage[] {
   const validHistory: { role: 'user' | 'model'; content: string }[] = [];
 
+  // 클라이언트가 표시한 오류·냉각 안내(⚠, ⏳)는 AI 대화 이력에서 제외
   const cleanMessages = (rawHistory ?? []).filter(
-    (m) => m && m.content && !m.content.startsWith('⚠ 오류') && !m.content.startsWith('⚠ 서버')
+    (m) => m && m.content && !m.content.startsWith('⚠') && !m.content.startsWith('⏳')
   );
 
   let expectedRole: 'user' | 'model' = 'user';
@@ -239,6 +260,29 @@ function simulateAIResponse(
 // POST /api/chat
 // ----------------------------------------------------------
 
+/**
+ * STAGE 2 해석기용 이전 질의 목록 (현재 질문 제외, 최근 3개)
+ */
+function buildParserContext(rawHistory: ChatMessage[], currentMessage: string): ParserContextItem[] {
+  const items: ParserContextItem[] = [];
+  for (const m of rawHistory ?? []) {
+    if (!m || typeof m.content !== 'string') continue;
+    if (m.role === 'user') {
+      items.push({ question: m.content.trim() });
+    } else if (m.interpretation && items.length > 0) {
+      items[items.length - 1].interpretation = m.interpretation;
+    }
+  }
+  if (items.length > 0 && items[items.length - 1].question === currentMessage.trim() && !items[items.length - 1].interpretation) {
+    items.pop();
+  }
+  return items.slice(-3);
+}
+
+function cooldownMessage(limit: number, seconds: number): string {
+  return `⏳ 이 터미널의 질문 ${limit}회를 모두 사용했습니다. ${seconds}초 냉각 후 ${limit}회가 재지급됩니다.`;
+}
+
 export async function POST(req: NextRequest) {
   let body: ChatRequest;
   try {
@@ -247,14 +291,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
   }
 
-  const { teamName, stageId, subStageId, message, turnNumber, history, selectedRules, isStage3ValidCombo } = body;
+  const { teamName, stageId, subStageId, message, history, ruleIds } = body;
+  let { selectedRules, isStage3ValidCombo } = body;
 
-  if (!teamName || !stageId || !message || turnNumber == null) {
+  if (!teamName || !stageId || !message) {
     return NextResponse.json({ error: '필수 필드가 누락되었습니다.' }, { status: 400 });
   }
 
   if (stageId !== 1 && stageId !== 2 && stageId !== 3) {
     return NextResponse.json({ error: '유효하지 않은 스테이지입니다.' }, { status: 400 });
+  }
+
+  // 장착 카드는 클라이언트 텍스트가 아닌 카드 ID로 서버에서 확정
+  let stage2Cards: Stage2Cards | null = null;
+  let stage3Pair: { ruleA: string; ruleB: string } | null = null;
+  if (stageId === 2) {
+    stage2Cards = resolveStage2Cards(ruleIds, selectedRules);
+    if (!stage2Cards) {
+      return NextResponse.json({ error: '장착된 보안 규칙 카드 정보가 올바르지 않습니다. 카드를 다시 장착해 주세요.' }, { status: 400 });
+    }
+    selectedRules = (ruleIds ?? [])
+      .map((id) => STAGE2_RULE_CARDS.find((c) => c.id === id))
+      .filter(Boolean)
+      .map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
+  } else if (stageId === 3 && Array.isArray(ruleIds) && ruleIds.length === 2) {
+    const cards = ruleIds.map((id) => STAGE3_RULE_CARDS.find((c) => c.id === id));
+    if (cards[0]?.group === 'A' && cards[1]?.group === 'B') {
+      selectedRules = cards.map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
+      isStage3ValidCombo = isStage3ComboValid(ruleIds[0], ruleIds[1]);
+      stage3Pair = { ruleA: ruleIds[0], ruleB: ruleIds[1] };
+    }
   }
 
   // 멘토에 의한 팀 일시 정지 (개별 또는 전체) 확인
@@ -265,14 +331,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 멘토 관제용 팀 하트비트
-  registerOrHeartbeatTeam({
-    teamName,
-    currentStage: stageId,
-    turnCount: turnNumber,
-  });
-
-  const supabase = createServerSupabase();
+  const supabase = isSupabaseConfigured() ? createServerSupabase() : null;
 
   // ---- 2. 스테이지별 비밀 코드 결정 ----
   let difficulty: Difficulty = 'medium';
@@ -289,8 +348,8 @@ export async function POST(req: NextRequest) {
     secretCode = STAGE3_CODE;
   }
 
-  // 기본 최대 시도 횟수: 30회 (Admin에서 최대 50회까지 설정 가능)
-  let maxAttempts = 30;
+  // 블록당 질문 한도 (game_config.max_attempts, 조회 실패 시 기본 50회)
+  let quotaLimit = DEFAULT_QUOTA_LIMIT;
 
   if (supabase) {
     try {
@@ -305,24 +364,76 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: '현재 게임이 비활성화 상태입니다.' }, { status: 403 });
         }
         difficulty = stageId === 1 ? configData.stage1_difficulty : configData.stage2_difficulty;
-        maxAttempts = configData.max_attempts;
+        if (Number.isInteger(configData.max_attempts) && configData.max_attempts > 0) {
+          quotaLimit = configData.max_attempts;
+        }
       }
     } catch {
       // Supabase 오류 시 로컬 기본값 사용
     }
   }
 
-  if (turnNumber > maxAttempts) {
-    return NextResponse.json({ error: `최대 시도 횟수(${maxAttempts}회)를 초과했습니다. 멘토에게 문의하세요.` }, { status: 429 });
+  // ---- 2-1. 질문 할당량 차감 (서버 단일 관리: 한도 소진 → 냉각 → 재지급) ----
+  const scope = scopeFor(stageId, subStageId);
+  const { allowed, status: quota } = await consumeQuota(teamName, scope, quotaLimit);
+
+  // 멘토 관제용 팀 하트비트 (냉각 상태 포함)
+  registerOrHeartbeatTeam({
+    teamName,
+    currentStage: stageId,
+    turnCount: quota.totalUsed,
+    isCoolingDown: quota.cooldownRemainingSec > 0,
+    ...(quota.cooldownRemainingSec > 0
+      ? { cooldownNotice: `[${scope}] 질문 ${quota.limit}회 소진 — ${COOLDOWN_SECONDS}초 냉각 후 재지급` }
+      : {}),
+  });
+
+  if (!allowed) {
+    return NextResponse.json(
+      { error: cooldownMessage(quota.limit, quota.cooldownRemainingSec), cooldown: true, quota },
+      { status: 429 }
+    );
   }
+
+  const refundAndFail = async (err: unknown) => {
+    console.warn('[chat] Upstage API 호출 실패:', err);
+    await refundQuota(teamName, scope, quotaLimit);
+    const statuses = await getQuotaStatuses(teamName, quotaLimit);
+    return NextResponse.json(
+      { error: 'AI 연결이 불안정합니다. 잠시 후 다시 시도해 주세요. (질문 횟수는 차감되지 않았습니다)', aiUnavailable: true, quota: statuses[scope] },
+      { status: 503 }
+    );
+  };
 
   const systemPrompt = getSystemPrompt(stageId, difficulty, secretCode, selectedRules, isStage3ValidCombo);
   const stage = getStage(stageId, secretCode);
 
-  // ---- 3. AI 응답 생성 (Upstage Solar 호출 또는 로컬 모의 시뮬레이션) ----
+  // ---- 3. AI 응답 생성 ----
   let aiResponse = '';
+  let interpretation: string | undefined;
 
-  if (isUpstageConfigured()) {
+  if (stageId === 2 && stage2Cards && isUpstageConfigured()) {
+    // STAGE 2: LLM은 질문 해석만, 참/거짓과 응답은 코드가 결정 (lib/stage2Engine.ts)
+    try {
+      const result = await runStage2Oracle(message, stage.secretCode, stage2Cards, buildParserContext(history, message));
+      aiResponse = result.reply;
+      interpretation = result.interpretation;
+    } catch (err) {
+      return refundAndFail(err);
+    }
+  } else if (stageId === 3 && stage3Pair && !isStage3ValidCombo) {
+    // STAGE 3 오답 조합: AI를 호출하지 않고 카드 규칙에 따른 고정 응답 (정답 유출 경로 없음)
+    aiResponse = wrongComboReply(stage3Pair.ruleA, stage3Pair.ruleB);
+  } else if (stageId === 3 && stage3Pair && isUpstageConfigured()) {
+    // STAGE 3 정답 조합: LLM은 4자리 질문 해석만, 레지스터 값·판정은 코드가 결정 (lib/stage3Engine.ts)
+    try {
+      const result = await runStage3Oracle(message, stage.secretCode, buildParserContext(history, message));
+      aiResponse = result.reply;
+      interpretation = result.interpretation;
+    } catch (err) {
+      return refundAndFail(err);
+    }
+  } else if (isUpstageConfigured()) {
     try {
       // 모델: 환경변수 UPSTAGE_MODEL (기본값 solar-pro4)
       const messages: UpstageMessage[] = [
@@ -331,14 +442,11 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: message },
       ];
 
-      const text = await upstageChat(messages);
+      // temperature 0: 같은 질문에는 항상 같은 결과 (팀 간 공정성)
+      const text = await upstageChat(messages, { temperature: 0 });
       aiResponse = sanitizeAIResponse(text, stageId, stage.secretCode);
     } catch (err) {
-      console.warn('[chat] Upstage API 호출 실패:', err);
-      return NextResponse.json(
-        { error: 'AI 연결이 불안정합니다. 잠시 후 다시 시도해 주세요.', aiUnavailable: true },
-        { status: 503 }
-      );
+      return refundAndFail(err);
     }
   } else {
     // UPSTAGE_API_KEY가 없는 로컬 개발 환경에서만 스마트 시뮬레이션 동작
@@ -355,10 +463,10 @@ export async function POST(req: NextRequest) {
       await supabase.from('attempts').insert({
         team_name: teamName,
         stage: stageId,
-        prompt_text: message,
-        ai_response: aiResponse,
+        prompt_text: stageId === 2 ? `[2-${subStageId === 2 ? 'B' : 'A'}] ${message}` : message,
+        ai_response: interpretation ? `${aiResponse}\n[해석] ${interpretation}` : aiResponse,
         success,
-        turn_number: turnNumber,
+        turn_number: quota.totalUsed,
       });
     } catch {
       // 무시
@@ -369,6 +477,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     reply: aiResponse,
     success,
+    quota,
+    ...(interpretation ? { interpretation } : {}),
     ...(success && matchedPattern ? { matchedPattern } : {}),
   });
 }
