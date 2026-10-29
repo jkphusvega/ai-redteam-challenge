@@ -66,6 +66,57 @@ test('모호한 질문은 억지로 해석하지 않고 기존 LLM 해석기로 
   assert.equal(parseCommonStageQuestion('크고 작고 업다운 알려줘', [], 3), null);
   assert.equal(parseCommonStageQuestion('두 번째 자리가 5보다 업다운이야?', [], 3), null);
   assert.equal(parseCommonStageQuestion('3이야?', [], 3), null);
+  assert.equal(parseCommonStageQuestion('첫 번째 자리가 0이고 세 번째 자리가 2야?', [], 3), null);
+  assert.equal(parseCommonStageQuestion('두 번째 자리가 2보다 크면서 5보다 작아?', [], 3), null);
+  assert.equal(parseCommonStageQuestion('첫 번째와 세 번째 중 하나가 2야?', [], 3), null);
+});
+
+test('특정 자리의 합과 전체 자리의 합을 구분한다', () => {
+  const selected = parseCommonStageQuestion('첫 번째 자리와 세 번째 자리의 합이 2야?', [], 3);
+  assert.ok(selected?.condition);
+  assert.equal(evalCond(selected.condition, codeDigits('032')), true);
+  assert.equal(evalCond(selected.condition, codeDigits('505')), false);
+  assert.match(answerStage2(selected, '032', {
+    honesty: true,
+    binary: false,
+    silence: false,
+    conceal: true,
+  }).interpretation, /1번째 자리 \+ 3번째 자리\) = 2/);
+
+  const wholeSum: ParsedQuery = {
+    intent: 'condition',
+    condition: { k: 'cmp', op: 'eq', a: { k: 'sum' }, b: { k: 'num', v: 5 } },
+  };
+  assert.deepEqual(guardParsedQuery(wholeSum, '각 자리의 합이 5야?', 3), wholeSum);
+});
+
+test('LLM이 특정 자리 합을 전체 합으로 오해하면 지정된 자리 덧셈으로 교정한다', () => {
+  const mistaken: ParsedQuery = {
+    intent: 'condition',
+    condition: { k: 'cmp', op: 'eq', a: { k: 'sum' }, b: { k: 'num', v: 2 } },
+  };
+  const corrected = guardParsedQuery(mistaken, '첫 번째 자리와 세 번째 자리의 합이 2야?', 3);
+  assert.ok(corrected.condition);
+  assert.equal(evalCond(corrected.condition, codeDigits('032')), true);
+  assert.equal(evalCond(corrected.condition, codeDigits('505')), false);
+  assert.match(answerStage2(corrected, '032', {
+    honesty: true,
+    binary: false,
+    silence: false,
+    conceal: true,
+  }).interpretation, /1번째 자리 \+ 3번째 자리\) = 2/);
+
+  const fourDigitMistake: ParsedQuery = {
+    intent: 'condition',
+    condition: { k: 'cmp', op: 'eq', a: { k: 'sum' }, b: { k: 'num', v: 9 } },
+  };
+  const fourDigitCorrected = guardParsedQuery(
+    fourDigitMistake,
+    '천의 자리와 백의 자리의 합이 9야?',
+    4
+  );
+  assert.ok(fourDigitCorrected.condition);
+  assert.equal(evalCond(fourDigitCorrected.condition, codeDigits('9052')), true);
 });
 
 test('PR #24: 3자리 전체 코드 추측은 직전 자리 문맥과 무관하게 whole 비교가 된다', () => {

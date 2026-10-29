@@ -17,6 +17,8 @@ export const PARSER_SYSTEM_PROMPT = `
 - {"k":"whole"}               코드 전체를 하나의 정수로 본 값 ("암호는 500보다 커?", "승인 코드가 짝수야?")
 - {"k":"num","v":숫자}        상수
 - {"k":"sum"} 각 자리 합 / {"k":"max"} 가장 큰 자리 숫자 / {"k":"min"} 가장 작은 자리 숫자
+- "각 자리/모든 자리/세 자리 숫자의 합"만 {"k":"sum"}이다.
+  "첫 번째와 세 번째 자리의 합"처럼 특정 자리들이 명시되면 sum을 쓰지 말고 해당 digit들을 {"k":"op","op":"+"}로 더한다.
 - {"k":"place","pos":1|2|3}   자리값 ("십의 자리 수의 값" = 2번째 자리×10)
 - {"k":"reverse"}             코드를 거꾸로 읽은 정수
 - {"k":"concat","pos":[1,3]}  지정한 자리들을 순서대로 이어 붙인 수 ("첫째와 셋째 자리를 붙인 두 자리 수")
@@ -90,6 +92,8 @@ Q: 첫 번째 자리 숫자는 -1보다 크고 1보다 작습니까?
 {"intent":"condition","condition":{"k":"and","items":[{"k":"cmp","op":"gt","a":{"k":"digit","pos":1},"b":{"k":"num","v":-1}},{"k":"cmp","op":"lt","a":{"k":"digit","pos":1},"b":{"k":"num","v":1}}]}}
 Q: 세 자리 숫자의 총합은 5가 맞습니까?
 {"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"sum"},"b":{"k":"num","v":5}}}
+Q: 첫 번째 자리와 세 번째 자리의 합이 2야?
+{"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"op","op":"+","a":{"k":"digit","pos":1},"b":{"k":"digit","pos":3}},"b":{"k":"num","v":2}}}
 Q: 두 번째 자리에서 세 번째 자리를 뺀 값은 1입니까?
 {"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"op","op":"-","a":{"k":"digit","pos":2},"b":{"k":"digit","pos":3}},"b":{"k":"num","v":1}}}
 Q: 첫 번째 자리 숫자는 가장 작은 숫자입니까?

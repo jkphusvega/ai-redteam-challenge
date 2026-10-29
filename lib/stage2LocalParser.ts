@@ -16,26 +16,54 @@ function compact(text: string): string {
     .replace(/[\s,._!?？。]+/g, '');
 }
 
-function explicitPosition(text: string, digitCount: 3 | 4): Pos | null {
+function explicitPositions(text: string, digitCount: 3 | 4): Pos[] {
   const value = compact(text);
+  const positions: Pos[] = [];
+  const add = (pos: Pos) => {
+    if (!positions.includes(pos)) positions.push(pos);
+  };
 
-  if (/(?:첫번째|첫째|1번째|맨앞|앞자리|reg0)/.test(value)) return 1;
-  if (/(?:두번째|둘째|2번째|reg1)/.test(value)) return 2;
-  if (/(?:세번째|셋째|3번째|reg2)/.test(value)) return 3;
-  if (digitCount === 4 && /(?:네번째|넷째|4번째|마지막|끝자리|reg3)/.test(value)) return 4;
+  if (/(?:첫번째|첫째|1번째|맨앞|앞자리|reg0)/.test(value)) add(1);
+  if (/(?:두번째|둘째|2번째|reg1|가운데자리|중간자리)/.test(value)) add(2);
+  if (/(?:세번째|셋째|3번째|reg2)/.test(value)) add(3);
+  if (digitCount === 4 && /(?:네번째|넷째|4번째|마지막|끝자리|reg3)/.test(value)) add(4);
 
   if (digitCount === 3) {
-    if (/백의자리/.test(value)) return 1;
-    if (/(?:십의자리|가운데자리|중간자리)/.test(value)) return 2;
-    if (/(?:일의자리|마지막자리|끝자리)/.test(value)) return 3;
+    if (/백의자리/.test(value)) add(1);
+    if (/십의자리/.test(value)) add(2);
+    if (/(?:일의자리|마지막자리|끝자리)/.test(value)) add(3);
   } else {
-    if (/천의자리/.test(value)) return 1;
-    if (/백의자리/.test(value)) return 2;
-    if (/십의자리/.test(value)) return 3;
-    if (/일의자리/.test(value)) return 4;
+    if (/천의자리/.test(value)) add(1);
+    if (/백의자리/.test(value)) add(2);
+    if (/십의자리/.test(value)) add(3);
+    if (/일의자리/.test(value)) add(4);
   }
 
-  return null;
+  return positions;
+}
+
+function explicitPosition(text: string, digitCount: 3 | 4): Pos | null {
+  return explicitPositions(text, digitCount)[0] ?? null;
+}
+
+function selectedPositionSum(message: string, digitCount: 3 | 4): Expr | null {
+  const value = compact(message);
+  if (!/(?:합|더하|더한|더해서|\+)/.test(value)) return null;
+  if (/(?:각자리|모든자리|전체자리|전자리|세자리숫자의?합|네자리숫자의?합)/.test(value)) return null;
+
+  const positions = explicitPositions(message, digitCount);
+  if (positions.length < 2) return null;
+
+  let result: Expr = { k: 'digit', pos: positions[0] };
+  for (const pos of positions.slice(1)) {
+    result = { k: 'op', op: '+', a: result, b: { k: 'digit', pos } };
+  }
+  return result;
+}
+
+function hasCompoundCondition(message: string): boolean {
+  const value = compact(message);
+  return /(?:그리고|또는|동시에|면서|거나|이고|이며|작고|크고|같고|아니고)/.test(value);
 }
 
 function targetExpression(
@@ -112,9 +140,29 @@ export function parseCommonStageQuestion(
   context: ParserContextItem[],
   digitCount: 3 | 4 = 3
 ): ParsedQuery | null {
-  const target = targetExpression(message, context, digitCount);
   const comparison = comparisonFromMessage(message);
-  if (!target || !comparison || !Number.isFinite(comparison.value)) return null;
+  if (!comparison || !Number.isFinite(comparison.value)) return null;
+
+  // 특정 자리들을 명시해 더한 질문은 전체 자리 합(sum)이 아니라 해당 digit들의 덧셈이다.
+  const sumExpr = selectedPositionSum(message, digitCount);
+  if (sumExpr) {
+    return {
+      intent: 'condition',
+      condition: {
+        k: 'cmp',
+        op: comparison.op,
+        a: sumExpr,
+        b: { k: 'num', v: comparison.value },
+      },
+      wordStyle: 'yesno',
+    };
+  }
+
+  // 여러 자리나 AND/OR 범위 질문은 한 자리 비교로 축약하지 않고 LLM 구조화기로 넘긴다.
+  if (explicitPositions(message, digitCount).length > 1 || hasCompoundCondition(message)) return null;
+
+  const target = targetExpression(message, context, digitCount);
+  if (!target) return null;
 
   return {
     intent: 'condition',
