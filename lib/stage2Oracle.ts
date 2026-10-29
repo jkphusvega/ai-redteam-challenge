@@ -9,8 +9,15 @@ import 'server-only';
 // ============================================================
 
 import { upstageChat } from './upstage';
-import { answerStage2, validateParsedQuery, type ParsedQuery, type Stage2Cards, type Stage2Result } from './stage2Engine';
-import { buildParserMessages, extractJson, type ParserContextItem } from './stage2ParserPrompt';
+import {
+  answerStage2,
+  guardParsedQuery,
+  validateParsedQuery,
+  type ParsedQuery,
+  type Stage2Cards,
+  type Stage2Result,
+} from './stage2Engine';
+import { buildParserMessages, extractJson, parseFullCodeGuess, type ParserContextItem } from './stage2ParserPrompt';
 import { answerStage3Valid, type Stage3Result } from './stage3Engine';
 import { STAGE2_RULE_CARDS } from './escapeRoomData';
 
@@ -25,6 +32,9 @@ export async function parseStage2Question(
   context: ParserContextItem[],
   digitCount: 3 | 4 = 3
 ): Promise<ParsedQuery> {
+  const direct = parseFullCodeGuess(message, digitCount);
+  if (direct) return direct;
+
   const messages = buildParserMessages(message, context, digitCount);
   const call = () => upstageChat(messages, { temperature: 0, maxTokens: 600, jsonObject: true, timeoutMs: 10_000 });
   let text: string;
@@ -34,7 +44,7 @@ export async function parseStage2Question(
     // 일시적 연결 끊김(ECONNRESET 등)은 1회 재시도
     text = await call();
   }
-  return validateParsedQuery(extractJson(text));
+  return guardParsedQuery(validateParsedQuery(extractJson(text)), message, digitCount);
 }
 
 /**
