@@ -1,16 +1,21 @@
 // ============================================================
-// lib/mentorStore.ts — 멘토 관제 시스템 전역 인메모리 & 동기화 저장소
+// lib/mentorStore.ts — 멘토 관제 시스템 저장소
 //
-// 핵심 수정:
-//   1. 삭제(delete) / 일시정지(suspend) 영속성 보장:
-//      - __deletedTeams 블랙리스트를 통해 Supabase attempts 재조회 시 부활 차단
-//      - __suspendedTeams 세트를 통해 상태 덮어쓰기 방지
-//   2. 전체 일시 정지(Global Freeze) 및 전체 STAGE 2 일괄 전환 브로드캐스트 지원
-//   3. 팀별 고유 4자리 랜덤 암호 자동 생성 및 관리 (generateTeamStage1Code)
-//   4. STAGE 2 세부 서브미션(2-1, 2-2, 2-3) 클리어 상태 추적
+// 저장소: Supabase(mentor_teams / mentor_state / mentor_sent_hints)를 우선 사용합니다.
+//   Vercel 서버리스는 요청마다 다른 인스턴스가 처리할 수 있으므로,
+//   삭제·정지·스테이지 이동 명령은 반드시 DB를 거쳐야 학생 요청에 반영됩니다.
+//   migration 미적용·통신 오류 시에만 서버 인메모리로 폴백합니다.
+//
+// 주요 기능:
+//   1. 팀 삭제(삭제 표식) / 일시정지 — 학생 하트비트로 부활하지 않음
+//   2. 전체 일시 정지 및 전체/개별 스테이지 강제 이동 (학생이 도착을 보고할 때까지 유지)
+//   3. 팀별 고유 4자리 랜덤 암호 자동 생성 (generateTeamStage1Code)
+//   4. STAGE 2 세부 서브미션(2-A, 2-B) 클리어 상태 추적
 // ============================================================
 
-import { createServerSupabase } from './supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { createServerSupabase, isSupabaseConfigured } from './supabase';
+import { getQuotaTotals, resetQuota } from './chatQuota';
 import { generateTeamStage1Code } from './missionSecrets';
 import type { TeamRecord, MentorControlState } from './types';
 
@@ -188,17 +193,9 @@ if (!g.__mentorRevokedHintIds) {
   g.__mentorRevokedHintIds = new Set<string>();
 }
 
-if (!g.__mentorTeams) {
-  g.__mentorTeams = new Map<string, TeamRecord>();
-}
-
-if (!g.__deletedTeams) {
-  g.__deletedTeams = new Set<string>();
-}
-
-if (!g.__suspendedTeams) {
-  g.__suspendedTeams = new Set<string>();
-}
+const memTeams = (g.__mentorTeams ??= new Map<string, TeamRecord>());
+const memDeleted = (g.__deletedTeams ??= new Set<string>());
+const memSuspended = (g.__suspendedTeams ??= new Set<string>());
 
 if (g.__isGlobalSuspended === undefined) {
   g.__isGlobalSuspended = false;
@@ -213,11 +210,127 @@ if (g.__globalStageAdvance !== null && g.__globalStageAdvanceExpiresAt === undef
   g.__globalStageAdvance = null;
 }
 
+/** 일괄 이동 명령 유지 시간 — 이후 접속하는 팀은 개별 강제 이동(forced_stage)으로 처리됨 */
+const GLOBAL_STAGE_ADVANCE_TTL_MS = 15_000;
+
 // ------------------------------------------------------------
-// 전역 멘토 제어 함수들 (전체 일시정지, 전체 Stage 2 전환)
+// 저장소 공통 (Supabase 우선, migration 미적용·통신 오류 시 인메모리 폴백)
 // ------------------------------------------------------------
 
-export function getMentorControlState(): MentorControlState {
+export interface HeartbeatInput {
+  teamName: string;
+  isInitialRegister?: boolean;
+  currentStage?: number;
+  mission1Cleared?: boolean;
+  mission2Cleared?: boolean;
+  stage2Sub1Cleared?: boolean;
+  stage2Sub2Cleared?: boolean;
+  stage3Cleared?: boolean;
+  stage3TurnCount?: number;
+  turnCount?: number;
+  isCoolingDown?: boolean;
+  cooldownNotice?: string;
+}
+
+export interface HeartbeatResult {
+  /** null이면 멘토가 삭제한 팀 */
+  team: TeamRecord | null;
+  control: MentorControlState;
+}
+
+interface MentorTeamRow {
+  team_key: string;
+  team_name: string;
+  status: 'active' | 'suspended' | 'deleted';
+  current_stage: number;
+  forced_stage: number | null;
+  mission1_cleared: boolean;
+  mission2_cleared: boolean;
+  stage2_sub1_cleared: boolean;
+  stage2_sub2_cleared: boolean;
+  stage3_cleared: boolean;
+  turn_count: number;
+  stage3_turn_count: number;
+  is_cooling_down: boolean;
+  cooldown_notice: string | null;
+  created_at: string;
+  last_active: string;
+  stage1_started_at: string;
+  stage1_cleared_at: string | null;
+  stage2_started_at: string | null;
+  stage2_cleared_at: string | null;
+  stage3_started_at: string | null;
+  stage3_cleared_at: string | null;
+}
+
+interface HeartbeatRpcResult {
+  team: MentorTeamRow;
+  is_global_suspended: boolean;
+  global_stage_advance: number | null;
+}
+
+type DbResult<T> = { ok: true; data: T | null } | { ok: false };
+
+async function withDb<T>(
+  op: string,
+  run: (supabase: SupabaseClient) => PromiseLike<{ data: unknown; error: { message: string } | null }>
+): Promise<DbResult<T>> {
+  if (!isSupabaseConfigured()) return { ok: false };
+  try {
+    const { data, error } = await run(createServerSupabase());
+    if (!error) return { ok: true, data: (data ?? null) as T | null };
+    console.warn(`[mentorStore] ${op} 실패, 인메모리 폴백:`, error.message);
+  } catch (err) {
+    console.warn(`[mentorStore] ${op} 예외, 인메모리 폴백:`, err);
+  }
+  return { ok: false };
+}
+
+function teamKey(teamName: string): string {
+  return teamName.trim().toLowerCase();
+}
+
+function optInt(value: unknown): number | null {
+  const n = Number(value);
+  return value !== undefined && value !== null && Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function optBool(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function rowToTeam(row: MentorTeamRow): TeamRecord {
+  return {
+    teamName: row.team_name,
+    status: row.status === 'suspended' ? 'suspended' : 'active',
+    createdAt: row.created_at,
+    lastActive: row.last_active,
+    currentStage: row.current_stage,
+    forcedStage: row.forced_stage ?? undefined,
+    stage1SecretCode: generateTeamStage1Code(row.team_name),
+    mission1Cleared: row.mission1_cleared,
+    mission2Cleared: row.mission2_cleared,
+    stage1StartedAt: row.stage1_started_at,
+    stage1ClearedAt: row.stage1_cleared_at ?? undefined,
+    stage2StartedAt: row.stage2_started_at ?? undefined,
+    stage2ClearedAt: row.stage2_cleared_at ?? undefined,
+    stage3StartedAt: row.stage3_started_at ?? undefined,
+    stage3ClearedAt: row.stage3_cleared_at ?? undefined,
+    stage2Sub1Cleared: row.stage2_sub1_cleared,
+    stage2Sub2Cleared: row.stage2_sub2_cleared,
+    stage3Cleared: row.stage3_cleared,
+    stage3TurnCount: row.stage3_turn_count,
+    turnCount: row.turn_count,
+    isCoolingDown: row.is_cooling_down,
+    cooldownNotice: row.cooldown_notice ?? undefined,
+  };
+}
+
+// ------------------------------------------------------------
+// 전역 멘토 제어 (전체 일시정지, 전체 스테이지 일괄 이동)
+// ------------------------------------------------------------
+
+function memControlState(): MentorControlState {
   if (
     g.__globalStageAdvance !== null &&
     g.__globalStageAdvanceExpiresAt !== undefined &&
@@ -233,73 +346,46 @@ export function getMentorControlState(): MentorControlState {
   };
 }
 
-export function setGlobalSuspended(suspended: boolean): boolean {
+export async function getMentorControlState(): Promise<MentorControlState> {
+  const res = await withDb<{
+    is_global_suspended: boolean;
+    global_stage_advance: number | null;
+    global_stage_advance_expires_at: string | null;
+  }>('mentor_state 조회', (s) =>
+    s
+      .from('mentor_state')
+      .select('is_global_suspended, global_stage_advance, global_stage_advance_expires_at')
+      .eq('id', 1)
+      .maybeSingle()
+  );
+  if (!res.ok) return memControlState();
+
+  const row = res.data;
+  const expiresAt = row?.global_stage_advance_expires_at ? Date.parse(row.global_stage_advance_expires_at) : null;
+  const advanceActive = row?.global_stage_advance != null && (expiresAt === null || expiresAt > Date.now());
+  return {
+    isGlobalSuspended: Boolean(row?.is_global_suspended),
+    globalStageAdvance: advanceActive ? row!.global_stage_advance : null,
+  };
+}
+
+export async function setGlobalSuspended(suspended: boolean): Promise<void> {
   g.__isGlobalSuspended = suspended;
-  try {
-    const supabase = createServerSupabase();
-    if (supabase) {
-      supabase.from('mentor_state').upsert({ id: 1, is_global_suspended: suspended }).then(() => {}, () => {});
-    }
-  } catch {
-    // 무시
-  }
-  return g.__isGlobalSuspended;
+  await withDb('전체 일시정지 저장', (s) =>
+    s.from('mentor_state').upsert({ id: 1, is_global_suspended: suspended, updated_at: new Date().toISOString() })
+  );
 }
 
-export function setGlobalStageAdvance(stage: number | null): number | null {
-  g.__globalStageAdvance = stage;
-  g.__globalStageAdvanceExpiresAt = stage === null ? undefined : Date.now() + 15_000;
-  // 전체 팀의 currentStage를 강제로 업데이트
-  if (stage !== null && g.__mentorTeams) {
-    const now = new Date().toISOString();
-    for (const team of g.__mentorTeams.values()) {
-      if (team.currentStage < stage) {
-        team.currentStage = stage;
-        if (stage >= 2) {
-          team.mission1Cleared = true;
-          team.stage1ClearedAt ||= now;
-          team.stage2StartedAt ||= now;
-        }
-        if (stage >= 3) {
-          team.mission2Cleared = true;
-          team.stage2Sub1Cleared = true;
-          team.stage2Sub2Cleared = true;
-          team.stage2ClearedAt ||= now;
-          team.stage3StartedAt ||= now;
-        }
-        team.lastActive = now;
-      }
-    }
-  }
-  try {
-    const supabase = createServerSupabase();
-    if (supabase) {
-      supabase.from('mentor_state').upsert({ id: 1, global_stage_advance: stage }).then(() => {}, () => {});
-    }
-  } catch {
-    // 무시
-  }
-  return g.__globalStageAdvance;
-}
-
-/**
- * 개별 팀 스테이지 강제 이동
- */
-export function advanceTeamStage(teamName: string, targetStage: number): TeamRecord | null {
-  const store = g.__mentorTeams;
-  if (!store) return null;
-  const key = teamName.trim().toLowerCase();
-  const team = store.get(key);
-  if (!team) return null;
-
-  const now = new Date().toISOString();
-  team.currentStage = Math.max(team.currentStage, targetStage);
-  if (targetStage >= 2) {
+/** 강제 이동 목표를 기록하고, 이동에 필요한 이전 스테이지 클리어 상태를 채웁니다. */
+function applyForcedStage(team: TeamRecord, stage: number, now: string) {
+  team.forcedStage = Math.max(team.forcedStage ?? 0, stage);
+  team.currentStage = Math.max(team.currentStage, stage);
+  if (stage >= 2) {
     team.mission1Cleared = true;
     team.stage1ClearedAt ||= now;
     team.stage2StartedAt ||= now;
   }
-  if (targetStage >= 3) {
+  if (stage >= 3) {
     team.mission2Cleared = true;
     team.stage2Sub1Cleared = true;
     team.stage2Sub2Cleared = true;
@@ -307,7 +393,62 @@ export function advanceTeamStage(teamName: string, targetStage: number): TeamRec
     team.stage3StartedAt ||= now;
   }
   team.lastActive = now;
-  return team;
+}
+
+function memSetGlobalStageAdvance(stage: number | null) {
+  g.__globalStageAdvance = stage;
+  g.__globalStageAdvanceExpiresAt = stage === null ? undefined : Date.now() + GLOBAL_STAGE_ADVANCE_TTL_MS;
+  const now = new Date().toISOString();
+  for (const team of memTeams.values()) {
+    if (stage === null) {
+      team.forcedStage = undefined;
+    } else if (team.currentStage < stage) {
+      applyForcedStage(team, stage, now);
+    }
+  }
+}
+
+export async function setGlobalStageAdvance(stage: number | null): Promise<void> {
+  const expiresAt = stage === null ? null : new Date(Date.now() + GLOBAL_STAGE_ADVANCE_TTL_MS).toISOString();
+  const saved = await withDb('일괄 이동 저장', (s) =>
+    s.from('mentor_state').upsert({
+      id: 1,
+      global_stage_advance: stage,
+      global_stage_advance_expires_at: expiresAt,
+      updated_at: new Date().toISOString(),
+    })
+  );
+  if (!saved.ok) {
+    memSetGlobalStageAdvance(stage);
+    return;
+  }
+
+  // 지금 등록된 팀은 각자 강제 이동 목표를 받아, 일괄 명령이 만료된 뒤 접속해도 이동됩니다.
+  if (stage === null) {
+    await withDb('강제 이동 해제', (s) =>
+      s.from('mentor_teams').update({ forced_stage: null }).not('forced_stage', 'is', null)
+    );
+  } else {
+    await withDb('mentor_advance_stage', (s) =>
+      s.rpc('mentor_advance_stage', { p_team_key: null, p_stage: stage })
+    );
+  }
+}
+
+/**
+ * 개별 팀 스테이지 강제 이동 — 팀을 찾지 못하면 false
+ */
+export async function advanceTeamStage(teamName: string, targetStage: number): Promise<boolean> {
+  const key = teamKey(teamName);
+  const res = await withDb<number>('mentor_advance_stage', (s) =>
+    s.rpc('mentor_advance_stage', { p_team_key: key, p_stage: targetStage })
+  );
+  if (res.ok) return (res.data ?? 0) > 0;
+
+  const team = memTeams.get(key);
+  if (!team) return false;
+  applyForcedStage(team, targetStage, new Date().toISOString());
+  return true;
 }
 
 // ------------------------------------------------------------
@@ -315,155 +456,80 @@ export function advanceTeamStage(teamName: string, targetStage: number): TeamRec
 // ------------------------------------------------------------
 
 /**
- * 등록된 모든 팀 목록 조회 (최근 활동 순)
+ * 등록된 모든 팀 목록 조회 (등록 순). 시도 횟수는 서버 질문 할당량의 전체 터미널 합계 기준.
  */
 export async function getTeams(): Promise<TeamRecord[]> {
-  const store = g.__mentorTeams || new Map<string, TeamRecord>();
-  const deletedSet = g.__deletedTeams || new Set<string>();
-  const suspendedSet = g.__suspendedTeams || new Set<string>();
+  const [res, quotaTotals] = await Promise.all([
+    withDb<MentorTeamRow[]>('mentor_teams 조회', (s) =>
+      s.from('mentor_teams').select('*').neq('status', 'deleted').order('created_at', { ascending: true })
+    ),
+    getQuotaTotals(),
+  ]);
 
-  // Supabase attempts 테이블에서 미등록 팀 자동 발견 및 보충 (삭제된 팀은 절대 제외)
-  try {
-    const supabase = createServerSupabase();
-    if (supabase) {
-      const { data: attempts } = await supabase
-        .from('attempts')
-        .select('team_name, stage, success, turn_number, created_at')
-        .order('created_at', { ascending: false })
-        .limit(200);
+  const teams = res.ok
+    ? (res.data || []).map(rowToTeam)
+    : Array.from(memTeams.entries())
+        .filter(([key]) => !memDeleted.has(key))
+        .map(([key, team]) => ({ ...team, status: memSuspended.has(key) ? 'suspended' as const : team.status }))
+        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 
-      if (attempts && attempts.length > 0) {
-        for (const att of attempts) {
-          const rawName = (att.team_name || '').trim();
-          if (!rawName) continue;
-          const key = rawName.toLowerCase();
-
-          // 삭제된 팀은 다시 추가하지 않음!
-          if (deletedSet.has(key)) continue;
-
-          if (!store.has(key)) {
-            const isSuspended = suspendedSet.has(key);
-            store.set(key, {
-              teamName: rawName,
-              status: isSuspended ? 'suspended' : 'active',
-              createdAt: att.created_at || new Date().toISOString(),
-              lastActive: att.created_at || new Date().toISOString(),
-              currentStage: att.stage || 1,
-              stage1SecretCode: generateTeamStage1Code(rawName),
-              mission1Cleared: att.stage === 1 && att.success,
-              mission2Cleared: att.stage === 2 && att.success,
-              stage1StartedAt: att.created_at || new Date().toISOString(),
-              stage1ClearedAt: att.stage === 1 && att.success ? att.created_at : undefined,
-              stage2StartedAt: att.stage >= 2 ? att.created_at : undefined,
-              stage2ClearedAt: att.stage === 2 && att.success ? att.created_at : undefined,
-              stage3StartedAt: att.stage >= 3 ? att.created_at : undefined,
-              stage3ClearedAt: att.stage === 3 && att.success ? att.created_at : undefined,
-              turnCount: att.turn_number || 1,
-            });
-          }
-        }
-      }
-    }
-  } catch {
-    // 무시
-  }
-
-  // 삭제된 팀 필터링 및 서스펜드 상태 재확인
-  const result: TeamRecord[] = [];
-  for (const [key, team] of store.entries()) {
-    if (deletedSet.has(key)) {
-      store.delete(key);
-      continue;
-    }
-    if (suspendedSet.has(key)) {
-      team.status = 'suspended';
-    }
-    result.push(team);
-  }
-
-  return result.sort(
-    (a, b) => new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime()
-  );
+  return teams.map((team) => ({
+    ...team,
+    turnCount: Math.max(team.turnCount, quotaTotals.get(teamKey(team.teamName)) || 0),
+  }));
 }
 
 /**
  * 단일 팀 조회
  */
-export function getTeam(teamName: string): TeamRecord | undefined {
+export async function getTeam(teamName: string): Promise<TeamRecord | undefined> {
   if (!teamName) return undefined;
-  const key = teamName.trim().toLowerCase();
-  if (g.__deletedTeams?.has(key)) return undefined;
+  const key = teamKey(teamName);
+  const res = await withDb<MentorTeamRow>('mentor_teams 단건 조회', (s) =>
+    s.from('mentor_teams').select('*').eq('team_key', key).neq('status', 'deleted').maybeSingle()
+  );
+  if (res.ok) return res.data ? rowToTeam(res.data) : undefined;
 
-  const store = g.__mentorTeams || new Map<string, TeamRecord>();
-  const team = store.get(key);
-  if (team && g.__suspendedTeams?.has(key)) {
+  if (memDeleted.has(key)) return undefined;
+  const team = memTeams.get(key);
+  if (team && memSuspended.has(key)) {
     team.status = 'suspended';
   }
   return team;
 }
 
-/**
- * 팀 등록 또는 하트비트 업데이트
- */
-export function registerOrHeartbeatTeam(data: {
-  teamName: string;
-  isInitialRegister?: boolean;
-  currentStage?: number;
-  mission1Cleared?: boolean;
-  mission2Cleared?: boolean;
-  stage2Sub1Cleared?: boolean;
-  stage2Sub2Cleared?: boolean;
-  stage2Sub3Cleared?: boolean;
-  stage3Cleared?: boolean;
-  stage3TurnCount?: number;
-  turnCount?: number;
-  isCoolingDown?: boolean;
-  coolingSubStage?: number;
-  cooldownNotice?: string;
-}): TeamRecord {
+function memHeartbeat(data: HeartbeatInput): HeartbeatResult {
   const cleanName = data.teamName.trim();
-  const key = cleanName.toLowerCase();
-  const store = g.__mentorTeams || (g.__mentorTeams = new Map<string, TeamRecord>());
-  const suspendedSet = g.__suspendedTeams || (g.__suspendedTeams = new Set<string>());
+  const key = teamKey(cleanName);
+  const control = memControlState();
+  const advance = control.globalStageAdvance ?? 0;
 
-  // 새로 명시적 등록될 때만 삭제 블랙리스트에서 해제 (백그라운드 하트비트로 인한 자동 부활 차단)
+  // 새로 명시적 등록될 때만 삭제 표식 해제 (백그라운드 하트비트로 인한 자동 부활 차단)
   if (data.isInitialRegister) {
-    g.__deletedTeams?.delete(key);
+    memDeleted.delete(key);
+  } else if (memDeleted.has(key)) {
+    return { team: null, control };
   }
 
   const now = new Date().toISOString();
-  const existing = store.get(key);
-  const activeGlobalStageAdvance = getMentorControlState().globalStageAdvance;
+  const existing = memTeams.get(key);
 
   if (existing) {
     existing.lastActive = now;
     existing.stage1StartedAt ||= existing.createdAt;
     if (data.currentStage !== undefined) {
-      // 멘토가 전체 STAGE 2 전환을 지시했으면 그보다 낮은 단계로 내려가지 않음
-      if (activeGlobalStageAdvance && data.currentStage < activeGlobalStageAdvance) {
-        existing.currentStage = activeGlobalStageAdvance;
-      } else {
-        existing.currentStage = data.currentStage;
+      if (existing.forcedStage !== undefined && data.currentStage >= existing.forcedStage) {
+        existing.forcedStage = undefined;
       }
+      existing.currentStage = data.currentStage;
     }
-    if (data.mission1Cleared !== undefined) {
-      existing.mission1Cleared = existing.mission1Cleared || data.mission1Cleared;
-    }
-    if (data.mission2Cleared !== undefined) {
-      existing.mission2Cleared = existing.mission2Cleared || data.mission2Cleared;
-    }
-    if (data.stage2Sub1Cleared !== undefined) {
-      existing.stage2Sub1Cleared = existing.stage2Sub1Cleared || data.stage2Sub1Cleared;
-    }
-    if (data.stage2Sub2Cleared !== undefined) {
-      existing.stage2Sub2Cleared = existing.stage2Sub2Cleared || data.stage2Sub2Cleared;
-    }
-    if (data.stage2Sub3Cleared !== undefined) {
-      existing.stage2Sub3Cleared = existing.stage2Sub3Cleared || data.stage2Sub3Cleared;
-    }
-    if (data.stage3Cleared !== undefined) {
-      existing.stage3Cleared = existing.stage3Cleared || data.stage3Cleared;
-    }
+    // 멘토가 이동을 지시했으면 학생이 도착을 보고할 때까지 그보다 낮은 단계로 내려가지 않음
+    existing.currentStage = Math.max(existing.currentStage, existing.forcedStage ?? 0, advance);
+    existing.mission1Cleared = existing.mission1Cleared || Boolean(data.mission1Cleared);
+    existing.mission2Cleared = existing.mission2Cleared || Boolean(data.mission2Cleared);
+    existing.stage2Sub1Cleared = existing.stage2Sub1Cleared || Boolean(data.stage2Sub1Cleared);
+    existing.stage2Sub2Cleared = existing.stage2Sub2Cleared || Boolean(data.stage2Sub2Cleared);
+    existing.stage3Cleared = existing.stage3Cleared || Boolean(data.stage3Cleared);
     if (existing.mission1Cleared) {
       existing.stage1ClearedAt ||= now;
     }
@@ -488,28 +554,22 @@ export function registerOrHeartbeatTeam(data: {
     if (data.isCoolingDown !== undefined) {
       existing.isCoolingDown = data.isCoolingDown;
     }
-    if (data.coolingSubStage !== undefined) {
-      existing.coolingSubStage = data.coolingSubStage;
-    }
     if (data.cooldownNotice !== undefined) {
       existing.cooldownNotice = data.cooldownNotice;
     }
-    if (suspendedSet.has(key)) {
+    if (memSuspended.has(key)) {
       existing.status = 'suspended';
     }
-    return existing;
+    return { team: existing, control };
   }
 
-  const isSuspended = suspendedSet.has(key);
-  const currentStage = activeGlobalStageAdvance
-    ? Math.max(data.currentStage || 1, activeGlobalStageAdvance)
-    : (data.currentStage || 1);
+  const currentStage = Math.max(data.currentStage || 1, advance);
   const mission1Cleared = Boolean(data.mission1Cleared);
   const mission2Cleared = Boolean(data.mission2Cleared);
   const stage3Cleared = Boolean(data.stage3Cleared);
   const newTeam: TeamRecord = {
     teamName: cleanName,
-    status: isSuspended ? 'suspended' : 'active',
+    status: memSuspended.has(key) ? 'suspended' : 'active',
     createdAt: now,
     lastActive: now,
     currentStage,
@@ -524,17 +584,49 @@ export function registerOrHeartbeatTeam(data: {
     stage3ClearedAt: stage3Cleared ? now : undefined,
     stage2Sub1Cleared: Boolean(data.stage2Sub1Cleared),
     stage2Sub2Cleared: Boolean(data.stage2Sub2Cleared),
-    stage2Sub3Cleared: Boolean(data.stage2Sub3Cleared),
     stage3Cleared,
     stage3TurnCount: data.stage3TurnCount || 0,
     turnCount: data.turnCount || 0,
     isCoolingDown: data.isCoolingDown || false,
-    coolingSubStage: data.coolingSubStage,
     cooldownNotice: data.cooldownNotice,
   };
 
-  store.set(key, newTeam);
-  return newTeam;
+  memTeams.set(key, newTeam);
+  return { team: newTeam, control };
+}
+
+/**
+ * 팀 등록 또는 하트비트 업데이트 (전역 제어 상태도 함께 반환)
+ */
+export async function registerOrHeartbeatTeam(data: HeartbeatInput): Promise<HeartbeatResult> {
+  const cleanName = data.teamName.trim();
+  const res = await withDb<HeartbeatRpcResult>('mentor_team_heartbeat', (s) =>
+    s.rpc('mentor_team_heartbeat', {
+      p_team_key: teamKey(cleanName),
+      p_team_name: cleanName,
+      p_initial: Boolean(data.isInitialRegister),
+      p_current_stage: optInt(data.currentStage),
+      p_mission1_cleared: optBool(data.mission1Cleared),
+      p_mission2_cleared: optBool(data.mission2Cleared),
+      p_stage2_sub1_cleared: optBool(data.stage2Sub1Cleared),
+      p_stage2_sub2_cleared: optBool(data.stage2Sub2Cleared),
+      p_stage3_cleared: optBool(data.stage3Cleared),
+      p_turn_count: optInt(data.turnCount),
+      p_stage3_turn_count: optInt(data.stage3TurnCount),
+      p_is_cooling_down: optBool(data.isCoolingDown),
+      p_cooldown_notice: typeof data.cooldownNotice === 'string' ? data.cooldownNotice : null,
+    })
+  );
+  if (!res.ok) return memHeartbeat(data);
+
+  const payload = res.data;
+  return {
+    team: payload ? rowToTeam(payload.team) : null,
+    control: {
+      isGlobalSuspended: Boolean(payload?.is_global_suspended),
+      globalStageAdvance: payload?.global_stage_advance ?? null,
+    },
+  };
 }
 
 /**
@@ -543,12 +635,13 @@ export function registerOrHeartbeatTeam(data: {
 export async function isTeamNameTaken(teamName: string): Promise<boolean> {
   if (!teamName) return false;
   const clean = teamName.trim();
-  const key = clean.toLowerCase();
+  const key = teamKey(clean);
 
-  // 1. 메모리 저장소 확인
-  const store = g.__mentorTeams || new Map<string, TeamRecord>();
-  const deletedSet = g.__deletedTeams || new Set<string>();
-  if (store.has(key) && !deletedSet.has(key)) {
+  // 1. 참가팀 저장소 확인
+  const res = await withDb<{ team_key: string }[]>('팀 이름 확인', (s) =>
+    s.from('mentor_teams').select('team_key').eq('team_key', key).neq('status', 'deleted').limit(1)
+  );
+  if (res.ok ? Boolean(res.data?.length) : memTeams.has(key) && !memDeleted.has(key)) {
     return true;
   }
 
@@ -575,99 +668,83 @@ export async function isTeamNameTaken(teamName: string): Promise<boolean> {
 /**
  * 팀 상태 변경 (정지 / 정지 해제)
  */
-export function setTeamStatus(teamName: string, status: 'active' | 'suspended'): TeamRecord | null {
+export async function setTeamStatus(teamName: string, status: 'active' | 'suspended'): Promise<TeamRecord | null> {
   if (!teamName) return null;
   const cleanName = teamName.trim();
-  const key = cleanName.toLowerCase();
-  const store = g.__mentorTeams || (g.__mentorTeams = new Map<string, TeamRecord>());
-  const suspendedSet = g.__suspendedTeams || (g.__suspendedTeams = new Set<string>());
+  const key = teamKey(cleanName);
+  const now = new Date().toISOString();
+
+  const res = await withDb<MentorTeamRow[]>('팀 상태 변경', (s) =>
+    s.from('mentor_teams').update({ status, last_active: now }).eq('team_key', key).neq('status', 'deleted').select()
+  );
+  if (res.ok) return res.data?.[0] ? rowToTeam(res.data[0]) : null;
 
   if (status === 'suspended') {
-    suspendedSet.add(key);
+    memSuspended.add(key);
   } else {
-    suspendedSet.delete(key);
+    memSuspended.delete(key);
   }
-
-  let team = store.get(key);
-  if (!team) {
-    team = registerOrHeartbeatTeam({ teamName: cleanName });
-  }
-
+  const team = memTeams.get(key) ?? memHeartbeat({ teamName: cleanName }).team;
+  if (!team) return null;
   team.status = status;
-  team.lastActive = new Date().toISOString();
-
-  try {
-    const supabase = createServerSupabase();
-    if (supabase) {
-      supabase.from('mentor_team_status').upsert({ team_name: cleanName, status, updated_at: new Date().toISOString() }).then(() => {}, () => {});
-    }
-  } catch {
-    // 무시
-  }
-
+  team.lastActive = now;
   return team;
 }
 
 /**
- * 팀 삭제 (인메모리 + 블랙리스트 + 발송 힌트 + DB 연계 삭제)
+ * 팀 삭제 (삭제 표식 + 발송 힌트 + 시도 기록 + 질문 할당량 연계 삭제)
  */
 export async function deleteTeam(teamName: string): Promise<boolean> {
   if (!teamName) return false;
   const cleanName = teamName.trim();
-  const key = cleanName.toLowerCase();
-  const store = g.__mentorTeams || (g.__mentorTeams = new Map<string, TeamRecord>());
-  const deletedSet = g.__deletedTeams || (g.__deletedTeams = new Set<string>());
-  const suspendedSet = g.__suspendedTeams || (g.__suspendedTeams = new Set<string>());
+  const key = teamKey(cleanName);
 
-  // 1. 블랙리스트에 추가하여 재조회 시 부활 완전 차단
-  deletedSet.add(key);
-  suspendedSet.delete(key);
+  // 1. 삭제 표식을 남겨 학생 하트비트로 부활하지 않게 함
+  memDeleted.add(key);
+  memSuspended.delete(key);
+  memTeams.delete(key);
+  await withDb('팀 삭제 표시', (s) =>
+    s.from('mentor_teams').upsert({
+      team_key: key,
+      team_name: cleanName,
+      status: 'deleted',
+      forced_stage: null,
+      last_active: new Date().toISOString(),
+    })
+  );
 
-  // 2. 인메모리 팀 삭제
-  store.delete(key);
-
-  // 3. 발송된 힌트 목록에서 해당 팀 힌트 삭제
+  // 2. 발송된 힌트 목록에서 해당 팀 힌트 삭제
   if (g.__mentorSentHints) {
-    g.__mentorSentHints = g.__mentorSentHints.filter(
-      (s) => s.teamName.trim().toLowerCase() !== key
-    );
+    g.__mentorSentHints = g.__mentorSentHints.filter((s) => teamKey(s.teamName) !== key);
   }
 
-  // 4. Supabase 연동 시 attempts, defense_submissions 및 mentor_team_status 삭제/기록
-  try {
-    const supabase = createServerSupabase();
-    if (supabase) {
-      await Promise.allSettled([
-        supabase.from('attempts').delete().eq('team_name', cleanName),
-        supabase.from('defense_submissions').delete().eq('team_name', cleanName),
-        supabase.from('mentor_sent_hints').delete().ilike('team_name', cleanName),
-        supabase.from('mentor_team_status').upsert({ team_name: cleanName, status: 'deleted', updated_at: new Date().toISOString() }),
-      ]);
-    }
-  } catch {
-    // 무시
-  }
+  // 3. 시도·방어·힌트·질문 할당량 기록 삭제
+  await Promise.allSettled([
+    resetQuota(cleanName),
+    withDb('시도 기록 삭제', (s) => s.from('attempts').delete().eq('team_name', cleanName)),
+    withDb('방어 기록 삭제', (s) => s.from('defense_submissions').delete().eq('team_name', cleanName)),
+    withDb('발송 힌트 삭제', (s) => s.from('mentor_sent_hints').delete().ilike('team_name', cleanName)),
+  ]);
 
   return true;
 }
 
 /**
- * 팀 삭제 여부 확인
- */
-export function isTeamDeleted(teamName: string): boolean {
-  if (!teamName) return false;
-  const key = teamName.trim().toLowerCase();
-  return Boolean(g.__deletedTeams?.has(key));
-}
-
-/**
  * 팀 일시정지 상태 여부 확인 (전체 일시정지 또는 개별 일시정지)
  */
-export function isTeamSuspended(teamName: string): boolean {
-  if (g.__isGlobalSuspended) return true;
-  if (!teamName) return false;
-  const key = teamName.trim().toLowerCase();
-  return Boolean(g.__suspendedTeams?.has(key));
+export async function isTeamSuspended(teamName: string): Promise<boolean> {
+  const key = teamName ? teamKey(teamName) : '';
+  const [control, res] = await Promise.all([
+    getMentorControlState(),
+    key
+      ? withDb<{ status: string }>('팀 정지 상태 조회', (s) =>
+          s.from('mentor_teams').select('status').eq('team_key', key).maybeSingle()
+        )
+      : Promise.resolve({ ok: true, data: null } as DbResult<{ status: string }>),
+  ]);
+  if (control.isGlobalSuspended) return true;
+  if (res.ok) return res.data?.status === 'suspended';
+  return memSuspended.has(key);
 }
 
 // ------------------------------------------------------------
@@ -748,7 +825,7 @@ export async function sendHintToTeam(
   teamName: string,
   titleOrHint: string | { title: string; content: string },
   maybeContent?: string
-): Promise<SentHint> {
+): Promise<{ sent: SentHint; persistent: boolean }> {
   const cleanName = teamName.trim();
   const title = typeof titleOrHint === 'string' ? titleOrHint : titleOrHint.title;
   const content = typeof titleOrHint === 'string' ? (maybeContent || '') : titleOrHint.content;
@@ -762,6 +839,8 @@ export async function sendHintToTeam(
   };
   g.__mentorSentHints = [newSent, ...(g.__mentorSentHints || [])];
 
+  // DB에 저장되지 않으면 이 서버 인스턴스에만 남아, 학생 폴링이 다른 인스턴스로 가면 힌트가 보이지 않습니다.
+  let persistent = false;
   try {
     const supabase = createServerSupabase();
     if (supabase) {
@@ -774,13 +853,15 @@ export async function sendHintToTeam(
       });
       if (error) {
         console.error('[mentor/hints] 힌트 영구 저장 실패:', error.message);
+      } else {
+        persistent = true;
       }
     }
   } catch {
     // 무시
   }
 
-  return newSent;
+  return { sent: newSent, persistent };
 }
 
 export async function deleteSentHint(sentHintId: string): Promise<boolean> {

@@ -17,8 +17,6 @@ import {
   registerOrHeartbeatTeam,
   setTeamStatus,
   deleteTeam,
-  isTeamSuspended,
-  isTeamDeleted,
   isTeamNameTaken,
   getMentorControlState,
   setGlobalSuspended,
@@ -39,16 +37,15 @@ export async function GET(req: NextRequest) {
   }
 
   const teamName = searchParams.get('teamName')?.trim();
-  const controlState = getMentorControlState();
 
   // 특정 팀 상태만 단일 조회 (학생 클라이언트 폴링용 - 인증 불필요, 암호 제외)
   if (teamName) {
-    const team = getTeam(teamName);
+    const [team, controlState] = await Promise.all([getTeam(teamName), getMentorControlState()]);
     const sanitizedTeam = team ? { ...team, stage1SecretCode: undefined } : null;
     return NextResponse.json({
       exists: Boolean(team),
       team: sanitizedTeam,
-      isSuspended: isTeamSuspended(teamName),
+      isSuspended: controlState.isGlobalSuspended || team?.status === 'suspended',
       isGlobalSuspended: controlState.isGlobalSuspended,
       globalStageAdvance: controlState.globalStageAdvance,
     });
@@ -59,7 +56,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: '멘토 인증이 필요합니다.' }, { status: 401 });
   }
 
-  const teams = await getTeams();
+  const [teams, controlState] = await Promise.all([getTeams(), getMentorControlState()]);
   return NextResponse.json({
     teams,
     count: teams.length,
@@ -83,10 +80,6 @@ export async function POST(req: NextRequest) {
     }
 
     const isInitialRegister = Boolean(body.isInitialRegister);
-    if (!isInitialRegister && isTeamDeleted(teamName)) {
-      return NextResponse.json({ error: '멘토에 의해 삭제된 팀입니다.' }, { status: 404 });
-    }
-
     if (isInitialRegister) {
       const taken = await isTeamNameTaken(teamName);
       if (taken) {
@@ -97,7 +90,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const team = registerOrHeartbeatTeam({
+    const { team, control } = await registerOrHeartbeatTeam({
       teamName,
       isInitialRegister,
       currentStage: body.currentStage,
@@ -105,24 +98,25 @@ export async function POST(req: NextRequest) {
       mission2Cleared: body.mission2Cleared,
       stage2Sub1Cleared: body.stage2Sub1Cleared,
       stage2Sub2Cleared: body.stage2Sub2Cleared,
-      stage2Sub3Cleared: body.stage2Sub3Cleared,
       stage3Cleared: body.stage3Cleared,
       stage3TurnCount: body.stage3TurnCount,
       turnCount: body.turnCount,
       isCoolingDown: body.isCoolingDown,
-      coolingSubStage: body.coolingSubStage,
       cooldownNotice: body.cooldownNotice,
     });
 
-    const controlState = getMentorControlState();
+    if (!team) {
+      return NextResponse.json({ error: '멘토에 의해 삭제된 팀입니다.' }, { status: 404 });
+    }
+
     const sanitizedTeam = { ...team, stage1SecretCode: undefined };
 
     return NextResponse.json({
       success: true,
       team: sanitizedTeam,
-      isSuspended: isTeamSuspended(teamName),
-      isGlobalSuspended: controlState.isGlobalSuspended,
-      globalStageAdvance: controlState.globalStageAdvance,
+      isSuspended: control.isGlobalSuspended || team.status === 'suspended',
+      isGlobalSuspended: control.isGlobalSuspended,
+      globalStageAdvance: control.globalStageAdvance,
     });
   } catch {
     return NextResponse.json({ error: '잘못된 요청 형식입니다.' }, { status: 400 });
@@ -154,7 +148,7 @@ export async function PATCH(req: NextRequest) {
 
     // 1. 전체 참가팀 일시 정지 (Global Freeze)
     if (action === 'global_suspend') {
-      setGlobalSuspended(true);
+      await setGlobalSuspended(true);
       return NextResponse.json({
         success: true,
         isGlobalSuspended: true,
@@ -164,7 +158,7 @@ export async function PATCH(req: NextRequest) {
 
     // 2. 전체 참가팀 일시 정지 해제 (Global Resume)
     if (action === 'global_resume') {
-      setGlobalSuspended(false);
+      await setGlobalSuspended(false);
       return NextResponse.json({
         success: true,
         isGlobalSuspended: false,
@@ -174,7 +168,7 @@ export async function PATCH(req: NextRequest) {
 
     // 3. 전체 참가팀 STAGE 2 일괄 전환
     if (action === 'advance_all_stage2') {
-      setGlobalStageAdvance(2);
+      await setGlobalStageAdvance(2);
       return NextResponse.json({
         success: true,
         globalStageAdvance: 2,
@@ -184,7 +178,7 @@ export async function PATCH(req: NextRequest) {
 
     // 4. 전체 참가팀 STAGE 3 일괄 전환
     if (action === 'advance_all_stage3') {
-      setGlobalStageAdvance(3);
+      await setGlobalStageAdvance(3);
       return NextResponse.json({
         success: true,
         globalStageAdvance: 3,
@@ -194,7 +188,7 @@ export async function PATCH(req: NextRequest) {
 
     // 5. 일괄 전환 명령 해제
     if (action === 'reset_stage_advance') {
-      setGlobalStageAdvance(null);
+      await setGlobalStageAdvance(null);
       return NextResponse.json({
         success: true,
         globalStageAdvance: null,
@@ -207,14 +201,13 @@ export async function PATCH(req: NextRequest) {
       if (!teamName) {
         return NextResponse.json({ error: '대상 팀 이름이 필요합니다.' }, { status: 400 });
       }
-      const targetStage = Number(body.targetStage) || 3;
-      const updated = advanceTeamStage(teamName, targetStage);
-      if (!updated) {
+      const targetStage = Number(body.targetStage) === 2 ? 2 : 3;
+      const found = await advanceTeamStage(teamName, targetStage);
+      if (!found) {
         return NextResponse.json({ error: '팀을 찾을 수 없습니다.' }, { status: 404 });
       }
       return NextResponse.json({
         success: true,
-        team: updated,
         message: `[${teamName}] 팀을 STAGE ${targetStage}로 이동시켰습니다.`,
       });
     }
@@ -235,7 +228,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: '유효한 action 또는 status가 필요합니다.' }, { status: 400 });
     }
 
-    const updated = setTeamStatus(teamName, targetStatus);
+    const updated = await setTeamStatus(teamName, targetStatus);
     if (!updated) {
       return NextResponse.json({ error: '팀을 찾을 수 없습니다.' }, { status: 404 });
     }

@@ -15,7 +15,7 @@
 //   8. { reply, success, matchedPattern } 반환
 // ============================================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { isUpstageConfigured, upstageChat, type UpstageMessage } from '@/lib/upstage';
 import { createServerSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getSystemPrompt, getStage } from '@/lib/stagePrompts';
@@ -324,7 +324,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 멘토에 의한 팀 일시 정지 (개별 또는 전체) 확인
-  if (isTeamSuspended(teamName)) {
+  if (await isTeamSuspended(teamName)) {
     return NextResponse.json(
       { error: '🚫 멘토에 의해 활동이 일시 정지되었습니다. 멘토에게 문의하세요.' },
       { status: 403 }
@@ -377,16 +377,18 @@ export async function POST(req: NextRequest) {
   const scope = scopeFor(stageId, subStageId);
   const { allowed, status: quota } = await consumeQuota(teamName, scope, quotaLimit);
 
-  // 멘토 관제용 팀 하트비트 (냉각 상태 포함)
-  registerOrHeartbeatTeam({
-    teamName,
-    currentStage: stageId,
-    turnCount: quota.totalUsed,
-    isCoolingDown: quota.cooldownRemainingSec > 0,
-    ...(quota.cooldownRemainingSec > 0
-      ? { cooldownNotice: `[${scope}] 질문 ${quota.limit}회 소진 — ${COOLDOWN_SECONDS}초 냉각 후 재지급` }
-      : {}),
-  });
+  // 멘토 관제용 팀 하트비트 (냉각 상태 포함) — 응답을 막지 않도록 응답 후 기록
+  after(() =>
+    registerOrHeartbeatTeam({
+      teamName,
+      currentStage: stageId,
+      turnCount: quota.totalUsed,
+      isCoolingDown: quota.cooldownRemainingSec > 0,
+      ...(quota.cooldownRemainingSec > 0
+        ? { cooldownNotice: `[${scope}] 질문 ${quota.limit}회 소진 — ${COOLDOWN_SECONDS}초 냉각 후 재지급` }
+        : {}),
+    })
+  );
 
   if (!allowed) {
     return NextResponse.json(
