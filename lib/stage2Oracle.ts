@@ -9,10 +9,23 @@ import 'server-only';
 // ============================================================
 
 import { upstageChat } from './upstage';
-import { answerStage2, validateParsedQuery, type ParsedQuery, type Stage2Cards, type Stage2Result } from './stage2Engine';
-import { buildParserMessages, extractJson, type ParserContextItem } from './stage2ParserPrompt';
+import {
+  answerStage2,
+  guardParsedQuery,
+  validateParsedQuery,
+  type ParsedQuery,
+  type Stage2Cards,
+  type Stage2Result,
+} from './stage2Engine';
+import {
+  buildParserMessages,
+  extractJson,
+  parseFullCodeGuess,
+  type ParserContextItem,
+} from './stage2ParserPrompt';
 import { answerStage3Valid, type Stage3Result } from './stage3Engine';
 import { STAGE2_RULE_CARDS } from './escapeRoomData';
+import { parseCommonStageQuestion } from './stage2LocalParser';
 
 export type { ParserContextItem };
 
@@ -25,6 +38,14 @@ export async function parseStage2Question(
   context: ParserContextItem[],
   digitCount: 3 | 4 = 3
 ): Promise<ParsedQuery> {
+  // 코드 길이와 같은 숫자만 찍어보는 질문은 자리 문맥보다 먼저 전체 코드 비교로 확정합니다.
+  const directGuess = parseFullCodeGuess(message, digitCount);
+  if (directGuess) return directGuess;
+
+  // 자주 쓰는 자리 비교·범위·업다운 질문은 LLM을 거치지 않고 동일한 기준으로 즉시 해석합니다.
+  const localParsed = parseCommonStageQuestion(message, context, digitCount);
+  if (localParsed) return localParsed;
+
   const messages = buildParserMessages(message, context, digitCount);
   const call = () => upstageChat(messages, { temperature: 0, maxTokens: 600, jsonObject: true, timeoutMs: 10_000 });
   let text: string;
@@ -34,7 +55,7 @@ export async function parseStage2Question(
     // 일시적 연결 끊김(ECONNRESET 등)은 1회 재시도
     text = await call();
   }
-  return validateParsedQuery(extractJson(text));
+  return guardParsedQuery(validateParsedQuery(extractJson(text)), message, digitCount);
 }
 
 /**
