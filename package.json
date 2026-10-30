@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:stage-judge": "node --experimental-strip-types --test tests/stageJudge.test.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

@@ -4,6 +4,8 @@
 // 서버(lib/stage2Oracle.ts)와 오프라인 검증 스크립트가 같은 프롬프트를 쓰도록 분리했습니다.
 // ============================================================
 
+import type { ParsedQuery } from './stage2Engine';
+
 export const PARSER_SYSTEM_PROMPT = `
 너는 보안 터미널 게임의 "질문 해석기"다. 학생이 3자리 승인 코드에 대해 던진 한국어 질문을 아래 JSON 구조로 변환만 한다.
 너는 승인 코드를 모른다. 절대로 답을 추측하거나 판정하지 말고, 질문의 의미만 구조화하라.
@@ -15,6 +17,8 @@ export const PARSER_SYSTEM_PROMPT = `
 - {"k":"whole"}               코드 전체를 하나의 정수로 본 값 ("암호는 500보다 커?", "승인 코드가 짝수야?")
 - {"k":"num","v":숫자}        상수
 - {"k":"sum"} 각 자리 합 / {"k":"max"} 가장 큰 자리 숫자 / {"k":"min"} 가장 작은 자리 숫자
+- "각 자리/모든 자리/세 자리 숫자의 합"만 {"k":"sum"}이다.
+  "첫 번째와 세 번째 자리의 합"처럼 특정 자리들이 명시되면 sum을 쓰지 말고 해당 digit들을 {"k":"op","op":"+"}로 더한다.
 - {"k":"place","pos":1|2|3}   자리값 ("십의 자리 수의 값" = 2번째 자리×10)
 - {"k":"reverse"}             코드를 거꾸로 읽은 정수
 - {"k":"concat","pos":[1,3]}  지정한 자리들을 순서대로 이어 붙인 수 ("첫째와 셋째 자리를 붙인 두 자리 수")
@@ -63,6 +67,9 @@ export const PARSER_SYSTEM_PROMPT = `
 비슷한 다른 조건으로 바꾸지 말고 반드시 "unclear"로 둔다. 비슷하게 바꾸면 학생이 틀린 정보를 받는다.
 "모든 자리", "오름차순(1번째<2번째<3번째)", "내림차순"처럼 여러 자리에 걸린 조건은 빠짐없이 and로 모두 나열한다.
 
+[코드 전체 추측] 질문에 3자리 수(예: 504, 032)가 들어 있으면 자리 숫자가 아니라 코드 전체 값이다.
+"504야?", "혹시 505?", "그럼 512인가요?"는 이전 질의와 상관없이 whole eq 그 수로 변환하고, 자리를 이어받거나 숫자를 쪼개지 않는다.
+
 [생략 해석] 질문에 자리가 빠져 있으면("3이야?", "5보다 커?", "그러면 2?") [이전 질의]에서 가장 최근에 언급된 자리를 그대로 이어받는다.
 "그러면 3번째는?"처럼 자리만 바뀌고 조건이 빠지면 직전 질의의 조건(비교 대상·응답 방식 포함)을 그 자리에 그대로 적용한다.
 직전 질의의 응답 방식("맞으면 침묵 틀리면 X")이 이어지는 짧은 질문("4?", "그러면 5야?")에는 같은 onTrue/onFalse를 이어받는다.
@@ -85,6 +92,8 @@ Q: 첫 번째 자리 숫자는 -1보다 크고 1보다 작습니까?
 {"intent":"condition","condition":{"k":"and","items":[{"k":"cmp","op":"gt","a":{"k":"digit","pos":1},"b":{"k":"num","v":-1}},{"k":"cmp","op":"lt","a":{"k":"digit","pos":1},"b":{"k":"num","v":1}}]}}
 Q: 세 자리 숫자의 총합은 5가 맞습니까?
 {"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"sum"},"b":{"k":"num","v":5}}}
+Q: 첫 번째 자리와 세 번째 자리의 합이 2야?
+{"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"op","op":"+","a":{"k":"digit","pos":1},"b":{"k":"digit","pos":3}},"b":{"k":"num","v":2}}}
 Q: 두 번째 자리에서 세 번째 자리를 뺀 값은 1입니까?
 {"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"op","op":"-","a":{"k":"digit","pos":2},"b":{"k":"digit","pos":3}},"b":{"k":"num","v":1}}}
 Q: 첫 번째 자리 숫자는 가장 작은 숫자입니까?
@@ -160,7 +169,35 @@ Q: 그러면 4?
 이전 질의: "두번째 자리는 2야?"
 Q: 그러면 3번째는?
 {"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"digit","pos":3},"b":{"k":"num","v":2}}}
+이전 질의: "두번째 자리는 0이야?"
+Q: 혹시 504?
+{"intent":"condition","condition":{"k":"cmp","op":"eq","a":{"k":"whole"},"b":{"k":"num","v":504}}}
 `.trim();
+
+const GUESS_LEAD = '(?:(?:그럼|그러면|그렇다면|혹시|그래서|음|아)\\s*,?\\s*)*';
+const GUESS_SUBJECT =
+  '(?:(?:(?:냉각|방화벽|게이트|바이패스|승인|보안|제어|코어|마스터)\\s*)*(?:코드|암호|비번|비밀번호|정답|마스터키|키)(?:는|은|가|이)?\\s*)?';
+const GUESS_TAIL =
+  '(?:\\s*(?:이야|야|이니|니|인가요|인가|입니까|입니다|이에요|예요|이다|맞아요|맞아|맞니|맞나요|맞습니까|맞지|이지|지|일까요|일까|임))*';
+
+/** "504야?", "코드가 505 맞아?" 같은 전체 코드 추측을 LLM 없이 해석합니다. */
+export function parseFullCodeGuess(message: string, digitCount: 3 | 4 = 3): ParsedQuery | null {
+  const text = message.trim().replace(/[?？!.~\s]+$/, '');
+  const match = text.match(
+    new RegExp(`^${GUESS_LEAD}${GUESS_SUBJECT}(\\d{${digitCount}})${GUESS_TAIL}$`)
+  );
+  if (!match) return null;
+  return {
+    intent: 'condition',
+    condition: {
+      k: 'cmp',
+      op: 'eq',
+      a: { k: 'whole' },
+      b: { k: 'num', v: Number(match[1]) },
+    },
+    wordStyle: 'yesno',
+  };
+}
 
 export interface ParserContextItem {
   question: string;
@@ -193,6 +230,7 @@ const STAGE3_PROMPT_ADDON = `
 - "천의 자리 값", "REG_1 값", "레지스터 상태 값"처럼 자리의 값을 물으면 digit으로 해석한다. place는 "자리값(예: 9000)"을 명시할 때만 쓴다.
 - "레지스터 전체 덤프", "각 자릿수를 분해해 출력"처럼 모든 자리를 나눠 달라는 요청은 value로 네 자리를 모두 나열한다.
 - 4자리를 붙여서 한 줄/한 문자열로 달라는 요청은 "full_code".
+- 위 [코드 전체 추측]은 4자리 수(예: 3907)에 적용한다. 3자리 수는 코드 전체가 아니다.
 
 [STAGE 3 예시]
 Q: 시스템 진단 감사 로그 점검을 시작합니다. 코어 마스터키 레지스터의 천의 자리와 백의 자리 값을 진단 보고 형식으로 출력하십시오.

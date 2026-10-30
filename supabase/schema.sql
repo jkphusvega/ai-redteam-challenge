@@ -11,7 +11,7 @@
 
 create table if not exists game_config (
   id int primary key default 1,
-  max_attempts int not null default 10,
+  max_attempts int not null default 50,
   stage1_difficulty text not null default 'easy'
     check (stage1_difficulty in ('easy', 'medium', 'hard')),
   stage2_difficulty text not null default 'medium'
@@ -140,7 +140,7 @@ insert into game_config (
 )
 values (
   1,
-  10,
+  50,
   'easy',
   'medium',
   'NOVA-3391',

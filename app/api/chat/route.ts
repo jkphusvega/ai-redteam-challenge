@@ -314,13 +314,17 @@ export async function POST(req: NextRequest) {
       .map((id) => STAGE2_RULE_CARDS.find((c) => c.id === id))
       .filter(Boolean)
       .map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
-  } else if (stageId === 3 && Array.isArray(ruleIds) && ruleIds.length === 2) {
-    const cards = ruleIds.map((id) => STAGE3_RULE_CARDS.find((c) => c.id === id));
-    if (cards[0]?.group === 'A' && cards[1]?.group === 'B') {
-      selectedRules = cards.map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
-      isStage3ValidCombo = isStage3ComboValid(ruleIds[0], ruleIds[1]);
-      stage3Pair = { ruleA: ruleIds[0], ruleB: ruleIds[1] };
+  } else if (stageId === 3) {
+    if (!Array.isArray(ruleIds) || ruleIds.length !== 2) {
+      return NextResponse.json({ error: '장착된 코어 프로토콜 카드 정보가 올바르지 않습니다. 카드를 다시 장착해 주세요.' }, { status: 400 });
     }
+    const cards = ruleIds.map((id) => STAGE3_RULE_CARDS.find((c) => c.id === id));
+    if (cards[0]?.group !== 'A' || cards[1]?.group !== 'B') {
+      return NextResponse.json({ error: '코어 프로토콜은 A그룹 1장과 B그룹 1장을 순서대로 장착해야 합니다.' }, { status: 400 });
+    }
+    selectedRules = cards.map((c) => `[${c!.code}: ${c!.title}]\n${c!.ruleText}`);
+    isStage3ValidCombo = isStage3ComboValid(ruleIds[0], ruleIds[1]);
+    stage3Pair = { ruleA: ruleIds[0], ruleB: ruleIds[1] };
   }
 
   // 멘토에 의한 팀 일시 정지 (개별 또는 전체) 확인

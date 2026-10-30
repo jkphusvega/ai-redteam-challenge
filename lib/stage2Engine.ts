@@ -281,6 +281,184 @@ export function validateParsedQuery(raw: unknown): ParsedQuery {
   }
 }
 
+function collectExprNums(e: Expr, out: Set<number>): void {
+  if (e.k === 'num') out.add(e.v);
+  else if (e.k === 'count' && e.test.k === 'cmp') out.add(e.test.v);
+  else if (e.k === 'op') {
+    collectExprNums(e.a, out);
+    collectExprNums(e.b, out);
+  }
+}
+
+function collectCondNums(c: Cond, out: Set<number>): void {
+  switch (c.k) {
+    case 'cmp':
+      collectExprNums(c.a, out);
+      collectExprNums(c.b, out);
+      break;
+    case 'in':
+      collectExprNums(c.a, out);
+      c.set.forEach((value) => out.add(value));
+      break;
+    case 'multiple':
+    case 'divisor':
+      collectExprNums(c.a, out);
+      out.add(c.of);
+      break;
+    case 'even':
+    case 'odd':
+    case 'prime':
+      collectExprNums(c.a, out);
+      break;
+    case 'has_digit':
+      out.add(c.d);
+      break;
+    case 'and':
+    case 'or':
+      c.items.forEach((item) => collectCondNums(item, out));
+      break;
+    case 'not':
+      collectCondNums(c.c, out);
+      break;
+  }
+}
+
+/** 한 자리 숫자를 0~9가 아닌 값과 같다/다르다로 비교하는 잘못된 해석을 찾습니다. */
+function hasImpossibleDigitCmp(c: Cond): boolean {
+  switch (c.k) {
+    case 'cmp': {
+      if (c.op !== 'eq' && c.op !== 'ne') return false;
+      const pair = [c.a, c.b];
+      const hasDigit = pair.some((expr) => expr.k === 'digit');
+      const num = pair.find((expr): expr is { k: 'num'; v: number } => expr.k === 'num');
+      return hasDigit && !!num && !(Number.isInteger(num.v) && num.v >= 0 && num.v <= 9);
+    }
+    case 'and':
+    case 'or':
+      return c.items.some(hasImpossibleDigitCmp);
+    case 'not':
+      return hasImpossibleDigitCmp(c.c);
+    default:
+      return false;
+  }
+}
+
+function selectedSumPositions(message: string, digitCount: 3 | 4): Pos[] {
+  const value = message.normalize('NFKC').toLowerCase().replace(/[\s,._!?？。]+/g, '');
+  if (!/(?:합|더하|더한|더해서|\+)/.test(value)) return [];
+  if (/(?:각자리|모든자리|전체자리|전자리|세자리숫자의?합|네자리숫자의?합)/.test(value)) return [];
+
+  const positions: Pos[] = [];
+  const add = (pos: Pos) => {
+    if (!positions.includes(pos)) positions.push(pos);
+  };
+  if (/(?:첫번째|첫째|1번째|맨앞|앞자리|reg0)/.test(value)) add(1);
+  if (/(?:두번째|둘째|2번째|reg1|가운데자리|중간자리)/.test(value)) add(2);
+  if (/(?:세번째|셋째|3번째|reg2)/.test(value)) add(3);
+  if (digitCount === 4 && /(?:네번째|넷째|4번째|마지막|끝자리|reg3)/.test(value)) add(4);
+  if (digitCount === 3) {
+    if (/백의자리/.test(value)) add(1);
+    if (/십의자리/.test(value)) add(2);
+    if (/(?:일의자리|마지막자리|끝자리)/.test(value)) add(3);
+  } else {
+    if (/천의자리/.test(value)) add(1);
+    if (/백의자리/.test(value)) add(2);
+    if (/십의자리/.test(value)) add(3);
+    if (/일의자리/.test(value)) add(4);
+  }
+  return positions.length >= 2 ? positions : [];
+}
+
+function addSelectedDigits(positions: Pos[]): Expr {
+  let result: Expr = { k: 'digit', pos: positions[0] };
+  for (const pos of positions.slice(1)) {
+    result = { k: 'op', op: '+', a: result, b: { k: 'digit', pos } };
+  }
+  return result;
+}
+
+function replaceWholeSumExpr(e: Expr, replacement: Expr): Expr {
+  if (e.k === 'sum') return replacement;
+  if (e.k === 'op') {
+    return { ...e, a: replaceWholeSumExpr(e.a, replacement), b: replaceWholeSumExpr(e.b, replacement) };
+  }
+  return e;
+}
+
+function replaceWholeSumCond(c: Cond, replacement: Expr): Cond {
+  switch (c.k) {
+    case 'cmp':
+      return { ...c, a: replaceWholeSumExpr(c.a, replacement), b: replaceWholeSumExpr(c.b, replacement) };
+    case 'in':
+    case 'even':
+    case 'odd':
+    case 'prime':
+    case 'multiple':
+    case 'divisor':
+      return { ...c, a: replaceWholeSumExpr(c.a, replacement) };
+    case 'and':
+    case 'or':
+      return { ...c, items: c.items.map((item) => replaceWholeSumCond(item, replacement)) };
+    case 'not':
+      return { ...c, c: replaceWholeSumCond(c.c, replacement) };
+    default:
+      return c;
+  }
+}
+
+function correctSelectedPositionSum(q: ParsedQuery, message: string, digitCount: 3 | 4): ParsedQuery {
+  const positions = selectedSumPositions(message, digitCount);
+  if (positions.length === 0) return q;
+  const replacement = addSelectedDigits(positions);
+
+  return {
+    ...q,
+    ...(q.condition ? { condition: replaceWholeSumCond(q.condition, replacement) } : {}),
+    ...(q.values ? { values: q.values.map((e) => replaceWholeSumExpr(e, replacement)) } : {}),
+    ...(q.relation
+      ? {
+          relation: {
+            a: replaceWholeSumExpr(q.relation.a, replacement),
+            b: replaceWholeSumExpr(q.relation.b, replacement),
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * LLM 해석의 사후 검증입니다. 질문에 포함된 코드 길이 숫자가 해석에서 사라지거나,
+ * 한 자리 숫자를 0~9 밖의 값과 비교했다면 틀린 판정 대신 해석 불가로 처리합니다.
+ */
+export function guardParsedQuery(q: ParsedQuery, message: string, digitCount: 3 | 4 = 3): ParsedQuery {
+  if (q.intent !== 'condition' && q.intent !== 'value' && q.intent !== 'relation') return q;
+  const unclear: ParsedQuery = { intent: 'unclear' };
+  q = correctSelectedPositionSum(q, message, digitCount);
+
+  if (q.condition && hasImpossibleDigitCmp(q.condition)) return unclear;
+
+  const nums = new Set<number>();
+  if (q.condition) collectCondNums(q.condition, nums);
+  q.values?.forEach((expr) => collectExprNums(expr, nums));
+  if (q.relation) {
+    collectExprNums(q.relation.a, nums);
+    collectExprNums(q.relation.b, nums);
+  }
+  const actionTexts = [q.onTrue, q.onFalse].map((action) => {
+    if (action?.type === 'text') return action.text;
+    if (action?.type === 'value') action.values.forEach((expr) => collectExprNums(expr, nums));
+    return '';
+  });
+
+  // "1,000" 같은 천 단위 쉼표는 하나의 수로 읽되 "1,2,3"은 그대로 둡니다.
+  const normalized = message.replace(/(\d),(?=\d{3}(?!\d))/g, '$1');
+  const codeLengthNums = normalized.match(new RegExp(`(?<!\\d)\\d{${digitCount}}(?!\\d)`, 'g')) ?? [];
+  const dropped = codeLengthNums.some(
+    (value) => !nums.has(Number(value)) && !actionTexts.some((text) => text.includes(value))
+  );
+  return dropped ? unclear : q;
+}
+
 // ------------------------------------------------------------
 // 2. 계산
 // ------------------------------------------------------------

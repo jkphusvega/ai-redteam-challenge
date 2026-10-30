@@ -32,13 +32,16 @@ export async function GET(req: NextRequest) {
   // 학생 클라이언트의 본인 팀 힌트 수신 (인증 불필요)
   if (teamName) {
     const { sent, persistent, revokedIds } = await getSentHints(teamName);
-    return NextResponse.json({
-      library: [],
-      sent,
-      persistent,
-      revokedIds,
-      activeTeams: [],
-    });
+    return NextResponse.json(
+      {
+        library: [],
+        sent,
+        persistent,
+        revokedIds,
+        activeTeams: [],
+      },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   }
 
   // 멘토 대시보드 조회 (인증 필수)

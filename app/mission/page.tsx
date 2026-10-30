@@ -636,7 +636,9 @@ export default function MissionPage() {
 
     async function fetchMentorHints() {
       try {
-        const res = await fetch(`/api/mentor/hints?teamName=${encodeURIComponent(teamName)}`);
+        const res = await fetch(`/api/mentor/hints?teamName=${encodeURIComponent(teamName)}`, {
+          cache: 'no-store',
+        });
         if (!res.ok) return;
         const data = await res.json();
         const serverHints: SentHint[] = data.sent || [];
@@ -2442,6 +2444,12 @@ export default function MissionPage() {
                 </div>
                 <div>
                   각 서브 터미널마다 <strong style={{ color: 'var(--cyan)' }}>[A그룹 2장 중 1장]</strong>과 <strong style={{ color: 'var(--purple)' }}>[B그룹 2장 중 1장]</strong>을 선택하여 장착할 수 있습니다. 카드는 재사용 가능하지만, <strong>앞서 사용한 동일 [A+B] 조합은 다른 터미널에서 중복 사용할 수 없습니다.</strong> <span style={{ color: 'var(--text-muted)' }}>(예: 2-A에서 A-1 + B-1을 썼다면, 2-B에서는 A-1 + B-2, A-2 + B-1, A-2 + B-2 중 하나를 선택해야 합니다.)</span> 2대 터미널(<strong style={{ color: 'var(--green)' }}>냉각 제어 코드 3자리, 방화벽 통과 코드 3자리</strong>)을 모두 해독하면 STAGE 3 중앙 코어 메모리가 해금됩니다.
+                </div>
+                <div style={{ marginTop: '8px', color: 'var(--cyan)' }}>
+                  자리 기준: 3자리 코드를 <strong>ABC</strong>라고 하면 <strong>1번째=A(백의 자리), 2번째=B(십의 자리), 3번째=C(일의 자리)</strong>입니다. 예를 들어 746이라면 1번째가 7, 2번째가 4, 3번째가 6입니다.
+                </div>
+                <div style={{ marginTop: '4px', color: 'var(--text-muted)' }}>
+                  범위 질문은 “2번째 자리가 5보다 작아?”, “2번째 자리가 4야?”, “2번째 자리가 5보다 업이야?” 또는 “5보다 다운이야?”처럼 대상 자리와 기준 숫자, 방향을 하나씩 명확히 적으면 가장 정확합니다.
                 </div>
               </div>
             </div>
