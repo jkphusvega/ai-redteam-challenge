@@ -16,6 +16,10 @@ function compact(text: string): string {
     .replace(/[\s,._!?？。]+/g, '');
 }
 
+// "마지막으로 물어볼게", "세 숫자 가운데 하나라도"처럼 자리가 아닌 뜻은 제외합니다.
+const LAST = /마지막(?:자리|숫자|수|값|이|은|꺼|거)/;
+const MIDDLE = /(?:가운데|중간)(?:자리|숫자)|^(?:그럼|그러면|혹시|아|음)*(?:가운데|중간)(?:가|는|이|꺼|거|값)/;
+
 function explicitPositions(text: string, digitCount: 3 | 4): Pos[] {
   const value = compact(text);
   const positions: Pos[] = [];
@@ -26,14 +30,14 @@ function explicitPositions(text: string, digitCount: 3 | 4): Pos[] {
   if (/(?:첫번째|첫째|첫자리|1번째|맨앞|앞자리|reg0)/.test(value)) add(1);
   if (/(?:두번째|둘째|2번째|reg1)/.test(value)) add(2);
   if (/(?:세번째|셋째|3번째|reg2)/.test(value)) add(3);
-  if (digitCount === 4 && /(?:네번째|넷째|4번째|마지막|끝자리|맨뒤|맨끝|reg3)/.test(value)) add(4);
+  if (digitCount === 4 && (/(?:네번째|넷째|4번째|끝자리|맨뒤|맨끝|reg3)/.test(value) || LAST.test(value))) add(4);
 
   if (digitCount === 3) {
     // 4자리에서는 가운데 자리가 하나로 정해지지 않으므로 3자리에서만 인식
-    if (/(?:가운데자리|중간자리)/.test(value)) add(2);
+    if (MIDDLE.test(value)) add(2);
     if (/백의자리/.test(value)) add(1);
     if (/십의자리/.test(value)) add(2);
-    if (/(?:일의자리|마지막자리|끝자리|맨뒤|맨끝)/.test(value)) add(3);
+    if (/(?:일의자리|끝자리|맨뒤|맨끝)/.test(value) || LAST.test(value)) add(3);
   } else {
     if (/천의자리/.test(value)) add(1);
     if (/백의자리/.test(value)) add(2);
@@ -83,6 +87,10 @@ function hasCompoundCondition(message: string): boolean {
   return /(?:그리고|또는|동시에|면서|거나|이고|이며|작고|크고|같고|아니고)/.test(value);
 }
 
+// 숫자와 비교·종결 표현만 남는 짧은 후속 질문: "그럼 3이야?", "5보다 커?", "5 이상이야?"
+const BARE_FOLLOW_UP =
+  /^(?:그럼|그러면|그렇다면|혹시|그래서|이번엔|이번에는|음|흠|아|어|오)*-?\d+(?:\.\d+)?(?:보다)?(?:크거나같|작거나같|크|커|큰|높|작|낮|이상|이하|초과|미만|업|다운)?(?:이야|야|이니|니|이냐|냐|인가|가|아|어|은가|지|이지|맞아|맞니|맞지|맞음|임|이에요|예요|입니까|맞습니까|요)*$/;
+
 function targetExpression(
   message: string,
   context: ParserContextItem[],
@@ -93,8 +101,8 @@ function targetExpression(
 
   const value = compact(message);
   if (/(?:승인코드|전체코드|암호전체|비밀번호전체)/.test(value)) return { k: 'whole' };
-  // 자리를 가리키는 말이 있는데 위에서 인식하지 못했다면 직전 질문의 자리를 이어받지 않는다.
-  if (/(?:자리|숫자|째)/.test(value)) return null;
+  // "마지막이 5야?", "전부 5야?"처럼 숫자·비교 말고 다른 말이 섞이면 직전 질문의 자리를 이어받지 않는다.
+  if (!BARE_FOLLOW_UP.test(value)) return null;
 
   // "그러면 3이야?"처럼 자리가 생략된 짧은 후속 질문은 최근 자리를 이어받습니다.
   for (let index = context.length - 1; index >= 0; index -= 1) {

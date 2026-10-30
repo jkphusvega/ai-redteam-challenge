@@ -206,3 +206,26 @@ test('기준 숫자가 둘 이상이거나 인식하지 못한 자리 표현은 
   assert.equal(truthFor032('맨 뒤 숫자가 2야?', '두번째 자리가 4야?'), true);
   assert.equal(parseCommonStageQuestion('가운데 자리가 0이야?', [], 4), null);
 });
+
+test('숫자·비교 표현만 있는 짧은 후속 질문만 직전 자리를 이어받는다', () => {
+  const ctx = [{ question: '첫번째 자리가 3이야?' }];
+  for (const message of [
+    '코드가 5야?',
+    '끝이 5야?',
+    '앞이 5야?',
+    '전부 5야?',
+    '하나라도 5야?',
+    '5보다 큰 게 있어?',
+    '5보다 커 아님 작아?',
+    '정답 5야?',
+  ]) {
+    assert.equal(parseCommonStageQuestion(message, ctx, 3), null, message);
+  }
+  assert.equal(truthFor032('그럼 0이야?', '첫번째 자리가 3이야?'), true);
+  assert.equal(truthFor032('5보다 작아?', '첫번째 자리가 3이야?'), true);
+  assert.equal(truthFor032('혹시 1 이상이야?', '첫번째 자리가 3이야?'), false);
+  assert.equal(truthFor032('아 그럼 0이야?', '첫번째 자리가 3이야?'), true);
+  assert.equal(truthFor032('마지막이 2야?', '첫번째 자리가 3이야?'), true);
+  assert.equal(truthFor032('가운데가 3이야?', '첫번째 자리가 3이야?'), true);
+  assert.equal(parseCommonStageQuestion('가운데가 0이야?', ctx, 4), null);
+});
