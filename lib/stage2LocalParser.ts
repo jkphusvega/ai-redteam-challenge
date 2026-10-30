@@ -61,6 +61,16 @@ function selectedPositionSum(message: string, digitCount: 3 | 4): Expr | null {
   return result;
 }
 
+// 응답 방식 지정·연산·부정이 섞이면 한 자리 비교로 축약할 때 뜻이 바뀌므로 LLM 해석기로 넘깁니다.
+const RESPONSE_STYLE = /(?:면|라고|침묵|말해|답해|대답|출력|표시|써)/;
+const OPERATION = /(?:더하|더한|빼|뺀|차이|배|나눈|나머지|곱|평균|가장|최대|최소|개수|몇개|홀수|짝수|소수|약수|포함|들어|거꾸로|뒤집|이어)/;
+const NEGATION = /(?:않|아니|안돼|안되|못)/;
+
+function needsFullParser(message: string): boolean {
+  const value = compact(message);
+  return RESPONSE_STYLE.test(value) || OPERATION.test(value) || NEGATION.test(value);
+}
+
 function hasCompoundCondition(message: string): boolean {
   const value = compact(message);
   return /(?:그리고|또는|동시에|면서|거나|이고|이며|작고|크고|같고|아니고)/.test(value);
@@ -83,7 +93,8 @@ function targetExpression(
     const previousPosition =
       explicitPosition(item.question, digitCount) ??
       (item.interpretation ? explicitPosition(item.interpretation, digitCount) : null);
-    if (previousPosition !== null) return { k: 'digit', pos: previousPosition };
+    // 직전 질문의 응답 방식("맞으면 침묵 틀리면 X")까지 이어받아야 하는 경우는 LLM 해석기에 맡깁니다.
+    if (previousPosition !== null) return needsFullParser(item.question) ? null : { k: 'digit', pos: previousPosition };
   }
 
   return null;
@@ -140,6 +151,8 @@ export function parseCommonStageQuestion(
   context: ParserContextItem[],
   digitCount: 3 | 4 = 3
 ): ParsedQuery | null {
+  if (needsFullParser(message)) return null;
+
   const comparison = comparisonFromMessage(message);
   if (!comparison || !Number.isFinite(comparison.value)) return null;
 
@@ -158,11 +171,15 @@ export function parseCommonStageQuestion(
     };
   }
 
-  // 여러 자리나 AND/OR 범위 질문은 한 자리 비교로 축약하지 않고 LLM 구조화기로 넘긴다.
+  // 여러 자리나 AND/OR 범위 질문, 지정 자리가 없는 합 질문은 한 자리 비교로 축약하지 않고 LLM 구조화기로 넘긴다.
   if (explicitPositions(message, digitCount).length > 1 || hasCompoundCondition(message)) return null;
+  if (/합/.test(compact(message))) return null;
 
   const target = targetExpression(message, context, digitCount);
   if (!target) return null;
+  // "500보다 커?"처럼 0~9 밖의 값은 자리 숫자가 아니라 코드 전체를 묻는 질문일 수 있으므로 LLM 해석기로 넘긴다.
+  const isSingleDigit = Number.isInteger(comparison.value) && comparison.value >= 0 && comparison.value <= 9;
+  if (target.k === 'digit' && !isSingleDigit) return null;
 
   return {
     intent: 'condition',

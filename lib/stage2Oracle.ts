@@ -44,7 +44,7 @@ export async function parseStage2Question(
 
   // 자주 쓰는 자리 비교·범위·업다운 질문은 LLM을 거치지 않고 동일한 기준으로 즉시 해석합니다.
   const localParsed = parseCommonStageQuestion(message, context, digitCount);
-  if (localParsed) return localParsed;
+  if (localParsed) return guardParsedQuery(localParsed, message, digitCount);
 
   const messages = buildParserMessages(message, context, digitCount);
   const call = () => upstageChat(messages, { temperature: 0, maxTokens: 600, jsonObject: true, timeoutMs: 10_000 });

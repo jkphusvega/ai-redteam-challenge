@@ -165,3 +165,27 @@ test('PR #24: 코드 전체 숫자가 사라진 LLM 오해석은 판정하지 �
   };
   assert.deepEqual(guardParsedQuery(impossibleDigit, '코드가 504 맞아?', 3), { intent: 'unclear' });
 });
+
+test('응답 방식·연산·부정이 섞인 질문은 로컬에서 확정하지 않고 LLM 해석기로 넘긴다', () => {
+  const ctx = [{ question: '두번째 자리가 0이야?' }];
+  for (const message of [
+    '첫번째 자리가 5보다 크면 말하고, 아니면 침묵해',
+    '첫번째 자리가 4보다 크면 X라고 답해',
+    '첫번째 자리가 5보다 크지 않아?',
+    '세번째 자리가 5 이상이 아니야?',
+    '세 자리 숫자의 총합은 10이야?',
+    '가장 큰 숫자가 5야?',
+    '두번째 자리에 5를 더하면 5야?',
+    '첫번째 자리의 2배가 10이야?',
+    '첫번째 자리를 3으로 나눈 나머지가 2야?',
+  ]) {
+    assert.equal(parseCommonStageQuestion(message, ctx, 3), null, message);
+  }
+});
+
+test('0~9 밖의 값이나 응답 방식이 걸린 직전 질문은 자리를 이어받지 않고 LLM 해석기로 넘긴다', () => {
+  const digitCtx = [{ question: '두번째 자리가 0이야?' }];
+  assert.equal(parseCommonStageQuestion('500보다 커?', digitCtx, 3), null);
+  assert.equal(parseCommonStageQuestion('코드가 250보다 작아?', digitCtx, 3), null);
+  assert.equal(parseCommonStageQuestion('4야?', [{ question: '첫번째 자리 5야? 맞으면 침묵 틀리면 X' }], 3), null);
+});
