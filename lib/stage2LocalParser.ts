@@ -23,15 +23,17 @@ function explicitPositions(text: string, digitCount: 3 | 4): Pos[] {
     if (!positions.includes(pos)) positions.push(pos);
   };
 
-  if (/(?:첫번째|첫째|1번째|맨앞|앞자리|reg0)/.test(value)) add(1);
-  if (/(?:두번째|둘째|2번째|reg1|가운데자리|중간자리)/.test(value)) add(2);
+  if (/(?:첫번째|첫째|첫자리|1번째|맨앞|앞자리|reg0)/.test(value)) add(1);
+  if (/(?:두번째|둘째|2번째|reg1)/.test(value)) add(2);
   if (/(?:세번째|셋째|3번째|reg2)/.test(value)) add(3);
-  if (digitCount === 4 && /(?:네번째|넷째|4번째|마지막|끝자리|reg3)/.test(value)) add(4);
+  if (digitCount === 4 && /(?:네번째|넷째|4번째|마지막|끝자리|맨뒤|맨끝|reg3)/.test(value)) add(4);
 
   if (digitCount === 3) {
+    // 4자리에서는 가운데 자리가 하나로 정해지지 않으므로 3자리에서만 인식
+    if (/(?:가운데자리|중간자리)/.test(value)) add(2);
     if (/백의자리/.test(value)) add(1);
     if (/십의자리/.test(value)) add(2);
-    if (/(?:일의자리|마지막자리|끝자리)/.test(value)) add(3);
+    if (/(?:일의자리|마지막자리|끝자리|맨뒤|맨끝)/.test(value)) add(3);
   } else {
     if (/천의자리/.test(value)) add(1);
     if (/백의자리/.test(value)) add(2);
@@ -71,6 +73,11 @@ function needsFullParser(message: string): boolean {
   return RESPONSE_STYLE.test(value) || OPERATION.test(value) || NEGATION.test(value);
 }
 
+/** 서수("2번째")를 뺀 숫자 개수 — 범위("5 이상 7 이하")나 선택지("2나 3")는 비교 기준이 둘 이상 */
+function comparedNumberCount(message: string): number {
+  return (message.normalize('NFKC').replace(/\d+\s*번\s*째/g, '').match(/\d+(?:\.\d+)?/g) ?? []).length;
+}
+
 function hasCompoundCondition(message: string): boolean {
   const value = compact(message);
   return /(?:그리고|또는|동시에|면서|거나|이고|이며|작고|크고|같고|아니고)/.test(value);
@@ -86,6 +93,8 @@ function targetExpression(
 
   const value = compact(message);
   if (/(?:승인코드|전체코드|암호전체|비밀번호전체)/.test(value)) return { k: 'whole' };
+  // 자리를 가리키는 말이 있는데 위에서 인식하지 못했다면 직전 질문의 자리를 이어받지 않는다.
+  if (/(?:자리|숫자|째)/.test(value)) return null;
 
   // "그러면 3이야?"처럼 자리가 생략된 짧은 후속 질문은 최근 자리를 이어받습니다.
   for (let index = context.length - 1; index >= 0; index -= 1) {
@@ -152,6 +161,8 @@ export function parseCommonStageQuestion(
   digitCount: 3 | 4 = 3
 ): ParsedQuery | null {
   if (needsFullParser(message)) return null;
+  // 기준 숫자가 둘 이상이거나 "뒤에서 N번째"처럼 순서를 뒤집는 표현은 한 번의 비교로 줄일 수 없으므로 LLM 해석기로 넘긴다.
+  if (comparedNumberCount(message) !== 1 || /뒤에서/.test(compact(message))) return null;
 
   const comparison = comparisonFromMessage(message);
   if (!comparison || !Number.isFinite(comparison.value)) return null;
